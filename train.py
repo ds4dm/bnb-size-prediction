@@ -43,10 +43,10 @@ def normalize_solving_stats(solving_stats, length=50):
 
 def load_instance(filename):
     with open(filename, 'rb') as file:
-        solving_stats, nb_nodes, nb_nodes_total = pickle.load(file)
+        features, nb_nodes, nb_nodes_total = pickle.load(file)
 
-    solving_stats = normalize_solving_stats(solving_stats, length=SEQUENCE_LENGTH)
-    features = np.stack([solving_stats[feature_name] for feature_name in FEATURE_NAMES], axis=-1)
+    # solving_stats = normalize_solving_stats(solving_stats, length=SEQUENCE_LENGTH)
+    # features = np.stack([solving_stats[feature_name] for feature_name in FEATURE_NAMES], axis=-1)
     features = tf.convert_to_tensor(features, dtype=tf.float32)
     response = tf.convert_to_tensor(nb_nodes_total - nb_nodes, dtype=tf.float32)
     return features, response
