@@ -12,7 +12,6 @@ import pyscipopt
 import scip_utilities
 # from wurlitzer import sys_pipes
 from actor.model import GCNPolicy
-from config import *
 
 
 class ActorSampler(mp.Process, pyscipopt.Branchrule):
@@ -80,8 +79,6 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
         tfconfig = tf.ConfigProto()
-        tfconfig.gpu_options.allow_growth = True
-        tfconfig.log_device_placement = True
         tf.enable_eager_execution(tfconfig)
         tf.set_random_seed(seed=self.seed)
 

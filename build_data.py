@@ -4,8 +4,8 @@ import pickle
 import multiprocessing as mp
 import tensorflow as tf
 import scip_utilities
+from itertools import cycle
 from pathlib import Path
-from config import *
 from sampler import ActorSampler, Message
 
 
@@ -17,7 +17,8 @@ NB_SAMPLERS = 8
 def generate_samples(instance_queue, results_queue, nb_samples, 
                      files, output_path, instance_batch_size=NB_SAMPLERS):
     sample_count = 0
-    files = iter(files)
+    file_count = 0
+    files = cycle(files)
 
     print(f"Start of sample generation in in {output_path}")
     while sample_count < nb_samples:
@@ -37,18 +38,13 @@ def generate_samples(instance_queue, results_queue, nb_samples,
             nb_subsamples = np.ceil(0.05 * len(solving_stats)).astype(int)
             subsample_ends = np.random.choice(np.arange(1, len(solving_stats)), nb_subsamples, replace=False).tolist()
             for subsample_end in subsample_ends:
-                subsample_stats = solving_stats[max(subsample_end-SEQUENCE_LENGTH, 0):subsample_end]
-                subsample_stats = {name: np.asarray([s[name] for s in subsample_stats]) 
-                                   for name in subsample_stats[0].keys()}
-                subsample_stats = scip_utilities.normalize_solving_stats(subsample_stats, length=50)
-                subsample_stats = np.stack([subsample_stats[feature_name] 
-                                         for feature_name in SOLVING_STATS_FEATURES], axis=-1)
+                subsample_stats = scip_utilities.pack_solving_stats(solving_stats[:subsample_end])
                 nb_nodes_left = nb_nodes_total - (subsample_end + 1)
 
             if sample_count < nb_samples:
                 sample_count += 1
                 sample_path = output_path/f"sample_{sample_count-1}.pkl"
-                if sample_count % 100 == 1:
+                if sample_count % 10 == 1:
                     print(f"Saving {sample_path}")
                 with sample_path.open('wb') as f:
                     pickle.dump((subsample_stats, nb_nodes_left), f)

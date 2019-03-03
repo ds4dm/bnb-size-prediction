@@ -6,7 +6,6 @@ import tensorflow as tf
 import tensorflow.keras as K
 import tensorflow.contrib.eager as tfe
 from pathlib import Path
-from .config import *
 from .model import Model
 
 
@@ -15,38 +14,9 @@ lr_end = 1e-5
 max_epochs = 50
 
 
-def normalize_solving_stats(solving_stats, length=50):
-    solving_stats = {name: np.pad(vals[-length:], (max(length-len(vals), 0), 0), mode='edge') for name, vals in solving_stats.items()}
-    
-    nnodes_done = solving_stats['ninternalnodes'] + solving_stats['nfeasibleleaves'] + solving_stats['ninfeasibleleaves'] + solving_stats['nobjlimleaves']
-    solving_stats['nnodes_done'] = nnodes_done
-    lp_obj_norm = [(v - lb) / ((ub - lb) if ub > lb else 1) for v, lb, ub in zip(solving_stats['lp_obj'], solving_stats['dualbound'], solving_stats['primalbound'])]
-    solving_stats['lp_obj_norm'] = lp_obj_norm
-    lp_obj_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats['lp_obj']]
-    solving_stats['lp_obj_normfirst'] = lp_obj_normfirst
-    avgdualbound_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats['avgdualbound']]
-    solving_stats['avgdualbound_normfirst'] = avgdualbound_normfirst
-    avgpseudocostscore_norm = [(v - lb) / ((ub - lb) if ub > lb else 1) for v, lb, ub in zip(solving_stats['avgpseudocostscore'], solving_stats['dualbound'], solving_stats['primalbound'])]
-    solving_stats['avgpseudocostscore_norm'] = avgpseudocostscore_norm
-    avgpseudocostscore_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats['avgpseudocostscore']]
-    solving_stats['avgpseudocostscore_normfirst'] = avgpseudocostscore_normfirst              
-    for k in (10, 25, 50, 75, 90):
-        quint = f'opennodes_{k}quant'
-        quint_norm = f'opennodes_{k}quant_norm'
-        quint_normfirst = f'opennodes_{k}quant_normfirst'
-        opennodes_quint_norm = [(v - lb) / ((ub - lb) if ub > lb else 1) for v, lb, ub in zip(solving_stats[quint], solving_stats['dualbound'], solving_stats['primalbound'])]
-        solving_stats[quint_norm] = opennodes_quint_norm
-        opennodes_quint_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats[quint]]
-        solving_stats[quint_normfirst] = opennodes_quint_normfirst
-    return solving_stats
-
-
 def load_instance(filename):
     with open(filename, 'rb') as file:
         features, nb_nodes, nb_nodes_total = pickle.load(file)
-
-    # solving_stats = normalize_solving_stats(solving_stats, length=SEQUENCE_LENGTH)
-    # features = np.stack([solving_stats[feature_name] for feature_name in FEATURE_NAMES], axis=-1)
     features = tf.convert_to_tensor(features, dtype=tf.float32)
     response = tf.convert_to_tensor(nb_nodes_total - nb_nodes, dtype=tf.float32)
     return features, response

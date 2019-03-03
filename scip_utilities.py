@@ -188,7 +188,48 @@ def extract_state(model, buffer=None):
     return constraint_features, edge_features, variable_features
 
 
-def normalize_solving_stats(solving_stats, length=50):
+SOLVING_STATS_SEQUENCE_LENGTH = 50
+SOLVING_STATS_FEATURES = [
+'opennodes_90quant_norm',
+'opennodes_75quant_normfirst',
+'opennodes_90quant_normfirst',
+'cutoffbound',
+'avgpseudocostscorecurrentrun',
+'primalbound',
+'nnodelpiterations',
+'dualboundroot',
+'ndeactivatednodes',
+'ncreatednodesrun',
+'ntotalnodes',
+'nleaves',
+'nduallps',
+'nstrongbranchs',
+'nlps',
+'nnodelps',
+'nnodeinitlpiterations',
+'gap',
+'avgpseudocostscore_normfirst',
+'nnodes_done',
+'nnodesleft',
+'transgap',
+'nbacktracks',
+'avgdualbound_normfirst',
+'avgpseudocostscore_norm',
+]
+
+
+def pack_solving_stats(solving_stats):
+    solving_stats = {name: np.asarray([s[name]
+                           for s in solving_stats[-SOLVING_STATS_SEQUENCE_LENGTH:]]) 
+                           for name in solving_stats[0].keys()}
+    solving_stats = normalize_solving_stats(solving_stats, 
+                              length=SOLVING_STATS_SEQUENCE_LENGTH)
+    solving_stats = np.stack([solving_stats[feature_name] 
+                              for feature_name in SOLVING_STATS_FEATURES], axis=-1)
+    return solving_stats
+
+
+def normalize_solving_stats(solving_stats, length=SOLVING_STATS_SEQUENCE_LENGTH):
     solving_stats = {name: np.pad(vals[-length:], (max(length-len(vals), 0), 0), mode='edge') for name, vals in solving_stats.items()}
     
     nnodes_done = solving_stats['ninternalnodes'] + solving_stats['nfeasibleleaves'] + solving_stats['ninfeasibleleaves'] + solving_stats['nobjlimleaves']
@@ -212,3 +253,5 @@ def normalize_solving_stats(solving_stats, length=50):
         opennodes_quint_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats[quint]]
         solving_stats[quint_normfirst] = opennodes_quint_normfirst
     return solving_stats
+
+

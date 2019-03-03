@@ -1,7 +1,10 @@
 import pickle
 import tensorflow as tf
 import tensorflow.keras as K
-from .config import *
+
+
+SEQUENCE_LENGTH = 50
+FEATURE_SIZE = 25
 
 
 class BaseModel(K.Model):
@@ -25,16 +28,16 @@ class Model(BaseModel):
     def __init__(self, feature_means=None, feature_stds=None):
         super().__init__()
         if feature_means is None:
-            feature_means = tf.zeros(len(FEATURE_NAMES))
+            feature_means = tf.zeros(FEATURE_SIZE)
         if feature_stds is None:
-            feature_stds = tf.ones(len(FEATURE_NAMES))
+            feature_stds = tf.ones(FEATURE_SIZE)
         self.norm = K.layers.Dense(feature_means.shape[0], trainable=False,
             kernel_initializer=lambda shape, dtype, partition_info: tf.diag(1/feature_stds),
             bias_initializer=lambda shape, dtype, partition_info: -feature_means/feature_stds)
         self.conv = K.Sequential([
             K.layers.Conv1D(filters=64, kernel_size=5, padding="same", activation='relu', 
                             kernel_initializer=K.initializers.Orthogonal(),
-                            input_shape=(SEQUENCE_LENGTH, len(FEATURE_NAMES))),
+                            input_shape=(SEQUENCE_LENGTH, FEATURE_SIZE)),
             K.layers.MaxPool1D(pool_size=4, strides=2, padding='same'),
             K.layers.Conv1D(filters=64, kernel_size=5, padding='same', activation='relu',
                             kernel_initializer=K.initializers.Orthogonal()),
@@ -56,7 +59,7 @@ class Model(BaseModel):
             ])
 
         # build model right-away
-        self.build((None, SEQUENCE_LENGTH, len(FEATURE_NAMES)))
+        self.build((None, SEQUENCE_LENGTH, FEATURE_SIZE))
 
         # save / restore fix
         self.variables_topological_order = [v.name for v in self.variables]
