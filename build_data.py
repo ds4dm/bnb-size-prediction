@@ -47,9 +47,9 @@ def generate_samples(instance_queue, results_queue, nb_samples,
 
             if sample_count < nb_samples:
                 sample_count += 1
-                sample_path = output_path/f"sample_{sample_count}.pkl"
+                sample_path = output_path/f"sample_{sample_count-1}.pkl"
                 if sample_count % 100 == 1:
-                    print(f"Saving {sample_path-1}")
+                    print(f"Saving {sample_path}")
                 with sample_path.open('wb') as f:
                     pickle.dump((subsample_stats, nb_nodes_left), f)
     print("Done!")

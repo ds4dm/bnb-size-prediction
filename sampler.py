@@ -77,6 +77,7 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         return {"result": result}
 
     def load_actor(self):
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
         tfconfig = tf.ConfigProto()
         tfconfig.gpu_options.allow_growth = True
