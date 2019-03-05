@@ -1,4 +1,4 @@
-import os
+4import os
 import numpy as np
 import pickle
 import multiprocessing as mp
@@ -35,25 +35,26 @@ def generate_samples(instance_queue, results_queue, nb_samples,
         # Process results
         for result in results:
             solving_stats, nb_nodes_total = result['solving_stats'], result['nb_nodes_total']
-            nb_subsamples = np.ceil(0.05 * len(solving_stats)).astype(int)
-            subsample_ends = np.random.choice(np.arange(1, len(solving_stats)), nb_subsamples, replace=False).tolist()
-            for subsample_end in subsample_ends:
-                subsample_stats = scip_utilities.pack_solving_stats(solving_stats[:subsample_end])
-                nb_nodes_left = nb_nodes_total - (subsample_end + 1)
+            if solving_stats:
+                nb_subsamples = np.ceil(0.05 * len(solving_stats)).astype(int)
+                subsample_ends = np.random.choice(np.arange(1, len(solving_stats)+1), nb_subsamples, replace=False).tolist()
+                for subsample_end in subsample_ends:
+                    subsample_stats = scip_utilities.pack_solving_stats(solving_stats[:subsample_end])
+                    nb_nodes_left = nb_nodes_total - subsample_end
 
-            if sample_count < nb_samples:
-                sample_count += 1
-                sample_path = output_path/f"sample_{sample_count-1}.pkl"
-                if sample_count % 10 == 1:
-                    print(f"Saving {sample_path}")
-                with sample_path.open('wb') as f:
-                    pickle.dump((subsample_stats, nb_nodes_left), f)
+                if sample_count < nb_samples:
+                    sample_count += 1
+                    sample_path = output_path/f"sample_{sample_count-1}.pkl"
+                    if sample_count % 10 == 1:
+                        print(f"Saving {sample_path}")
+                    with sample_path.open('wb') as f:
+                        pickle.dump((subsample_stats, nb_nodes_left), f)
     print("Done!")
 
 
 if __name__ == "__main__":
     # Input files
-    data_folder = Path("data/instances/setcover/")
+    data_folder = Path("data/instances/maxime_pandora/setcover/")
     train_files = (data_folder/"train_500r_1000c_0.05d").glob("*.lp")
     test_files = (data_folder/"test_500r_1000c_0.05d").glob("*.lp")
     parameters_path = "actor/pretrained-setcover/best_params.pkl"
