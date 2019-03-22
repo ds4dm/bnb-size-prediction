@@ -1,4 +1,4 @@
-4import os
+import os
 import numpy as np
 import pickle
 import multiprocessing as mp
@@ -11,7 +11,7 @@ from sampler import ActorSampler, Message
 
 NB_TRAINING_SAMPLES = 100000
 NB_TEST_SAMPLES = 20000
-NB_SAMPLERS = 8
+NB_SAMPLERS = 4
 
 
 def generate_samples(instance_queue, results_queue, nb_samples, 
@@ -23,6 +23,7 @@ def generate_samples(instance_queue, results_queue, nb_samples,
     print(f"Start of sample generation in in {output_path}")
     while sample_count < nb_samples:
         # Send orders
+        print("Solving")
         for _ in range(instance_batch_size):
             instance_queue.put({'type': Message.NEW_INSTANCE,
                                 'instance_path': str(next(files))})
@@ -32,6 +33,7 @@ def generate_samples(instance_queue, results_queue, nb_samples,
         for _ in range(instance_batch_size):
             results.append(results_queue.get())
 
+        print("Processing")
         # Process results
         for result in results:
             solving_stats, nb_nodes_total = result['solving_stats'], result['nb_nodes_total']
@@ -41,20 +43,19 @@ def generate_samples(instance_queue, results_queue, nb_samples,
                 for subsample_end in subsample_ends:
                     subsample_stats = scip_utilities.pack_solving_stats(solving_stats[:subsample_end])
                     nb_nodes_left = nb_nodes_total - subsample_end
-
-                if sample_count < nb_samples:
-                    sample_count += 1
-                    sample_path = output_path/f"sample_{sample_count-1}.pkl"
-                    if sample_count % 10 == 1:
-                        print(f"Saving {sample_path}")
-                    with sample_path.open('wb') as f:
-                        pickle.dump((subsample_stats, nb_nodes_left), f)
+                    if sample_count < nb_samples:
+                        sample_count += 1
+                        sample_path = output_path/f"sample_{sample_count-1}.pkl"
+                        if sample_count % 10 == 1:
+                            print(f"Saving {sample_path}")
+                        with sample_path.open('wb') as f:
+                            pickle.dump((subsample_stats, nb_nodes_left), f)
     print("Done!")
 
 
 if __name__ == "__main__":
     # Input files
-    data_folder = Path("data/instances/maxime_pandora/setcover/")
+    data_folder = Path("data/instances/setcover/")
     train_files = (data_folder/"train_500r_1000c_0.05d").glob("*.lp")
     test_files = (data_folder/"test_500r_1000c_0.05d").glob("*.lp")
     parameters_path = "actor/pretrained-setcover/best_params.pkl"

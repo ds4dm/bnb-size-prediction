@@ -6,7 +6,7 @@ import tensorflow as tf
 import tensorflow.keras as K
 import tensorflow.contrib.eager as tfe
 from pathlib import Path
-from .model import Model
+from model import Model
 
 
 lr_start = 1e-4
@@ -16,9 +16,9 @@ max_epochs = 50
 
 def load_instance(filename):
     with open(filename, 'rb') as file:
-        features, nb_nodes, nb_nodes_total = pickle.load(file)
+        features, nb_nodes_left = pickle.load(file)
     features = tf.convert_to_tensor(features, dtype=tf.float32)
-    response = tf.convert_to_tensor(nb_nodes_total - nb_nodes, dtype=tf.float32)
+    response = tf.convert_to_tensor(nb_nodes_left, dtype=tf.float32)
     return features, response
 
 
@@ -66,26 +66,27 @@ if __name__ == "__main__":
     tf.enable_eager_execution(tfconfig)
     tf.set_random_seed(seed=0)
     
-    data_folder = Path('../../data/pickle/dataset_new_model')
+    data_folder = Path('data/bnb_node_prediction/setcover')
+    output_folder = Path('pretrained-setcover')
 
-    train_filenames = [str(filename) for filename in data_folder.glob('train*.pkl')]
+    train_filenames = [str(filename) for filename in (data_folder/"train_500r_1000c_0.05d").glob('sample*.pkl')]
     train_data = tf.data.Dataset.from_tensor_slices(train_filenames).batch(32)
     train_data = train_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32]))
     train_data = train_data.prefetch(1)
 
-    test_filenames = [str(filename) for filename in data_folder.glob('test*.pkl')]
+    test_filenames = [str(filename) for filename in (data_folder/"test_500r_1000c_0.05d").glob('sample*.pkl')]
     test_data = tf.data.Dataset.from_tensor_slices(test_filenames).batch(128)
     test_data = test_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32]))
     test_data = test_data.prefetch(1)
 
-    if (data_folder/"stats.pickle").exists():
-        with (data_folder/"stats.pickle").open('rb') as file:
+    if (data_folder/"train_500r_1000c_0.05d"/"stats.pickle").exists():
+        with (data_folder/"train_500r_1000c_0.05d"/"stats.pickle").open('rb') as file:
             feature_stats = pickle.load(file)
         feature_means = feature_stats['feature_means']
         feature_stds = feature_stats['feature_stds']
     else:
         feature_means, feature_stds = [], []
-        for features, responses in train_data:
+        for features, _ in train_data:
             feature_means.append(tf.reduce_mean(features, axis=(0, 1)))
             mean = tf.expand_dims(tf.expand_dims(feature_means[-1], axis=0), axis=0)
             std = tf.reduce_mean(tf.reduce_mean((features - mean) ** 2, axis=0), axis=0)
@@ -94,7 +95,7 @@ if __name__ == "__main__":
         feature_stds = tf.reduce_mean(tf.stack(feature_stds, axis=0), axis=0).numpy()
         feature_stds[feature_stds < 1e-5] = 1.
 
-        with (data_folder/"stats.pickle").open('wb') as file:
+        with (data_folder/"train_500r_1000c_0.05d"/"stats.pickle").open('wb') as file:
             pickle.dump({'feature_means': feature_means, 'feature_stds': feature_stds}, file)
 
     model = Model(feature_means, feature_stds)
@@ -125,4 +126,5 @@ if __name__ == "__main__":
         test_loss = tf.reduce_mean(test_loss)
         print(f"Epoch {epoch}, test loss {test_loss:.2f}")
 
-    model.save_state("pretrained-setcover/best_params.pkl")
+    output_folder.mkdir(parents=True, exist_ok=True)
+    model.save_state(output_folder/"best_params.pkl")
