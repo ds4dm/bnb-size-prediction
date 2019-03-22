@@ -61,7 +61,8 @@ if __name__ == "__main__":
     parameters_path = "actor/pretrained-setcover/best_params.pkl"
 
     # Output files
-    output_path = Path("data/bnb_node_prediction/setcover")
+    output_path = Path("data/bnb_size_prediction/baseline/setcover")
+    # output_path = Path("data/bnb_size_prediction/low_entropy/setcover")
     (output_path/"train_500r_1000c_0.05d").mkdir(parents=True, exist_ok=True)
     (output_path/"test_500r_1000c_0.05d").mkdir(parents=True, exist_ok=True)
 

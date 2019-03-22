@@ -67,9 +67,14 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         var_logits = self.actor(state).numpy().squeeze(0)
 
         candidate_vars, *_ = self.model.getLPBranchCands()
-        branching_mask = [var.getCol().getLPPos() for var in candidate_vars]
-        var_logits = var_logits[branching_mask]
-        best_var = candidate_vars[var_logits.argmax()]
+        candidate_mask = [var.getCol().getLPPos() for var in candidate_vars]
+        var_logits = var_logits[candidate_mask]
+
+        # best_var = candidate_vars[var_logits.argmax()]
+        var_logits -= var_logits.max()
+        policy = np.exp(var_logits) / np.exp(var_logits).sum()
+        action = np.random.choice(len(policy), 1, p=policy)[0]
+        best_var = candidate_vars[action]
 
         self.model.branchVar(best_var)
         result = pyscipopt.SCIP_RESULT.BRANCHED
@@ -77,7 +82,7 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
 
     def load_actor(self):
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
-        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        os.environ['CUDA_VISIBLE_DEVICES'] = '3'
         tfconfig = tf.ConfigProto()
         tf.enable_eager_execution(tfconfig)
         tf.set_random_seed(seed=self.seed)
