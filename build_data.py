@@ -51,7 +51,8 @@ def generate_samples(instance_queue, results_queue, nb_samples,
                         if sample_count % 10 == 1:
                             print(f"Saving {sample_path}")
                         with sample_path.open('wb') as f:
-                            pickle.dump({'solving_stats': subsample_stats, 'nb_nodes_left': nb_nodes_left, 
+                            pickle.dump({'solving_stats': subsample_stats, 
+                                         'nb_nodes_left': nb_nodes_left, 
                                          'nb_lp_iterations_left': nb_lp_iterations_left, 
                                          'solving_time_left': solving_time_left, 
                                          'instance_path': result['instance_path']}, f)
@@ -66,9 +67,7 @@ if __name__ == "__main__":
     parameters_path = "actor/pretrained-setcover/best_params.pkl"
 
     # Output files
-    # output_path = Path("data/bnb_size_prediction/baseline/setcover")
-    # output_path = Path("data/bnb_size_prediction/low_entropy/setcover")
-    output_path = Path("data/bnb_size_prediction/baseline_extended/setcover")
+    output_path = Path("data/bnb_size_prediction/baseline/setcover")
     (output_path/"train_500r_1000c_0.05d").mkdir(parents=True, exist_ok=True)
     (output_path/"test_500r_1000c_0.05d").mkdir(parents=True, exist_ok=True)
 

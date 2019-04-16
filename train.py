@@ -16,9 +16,9 @@ max_epochs = 50
 
 def load_instance(filename):
     with open(filename, 'rb') as file:
-        features, nb_nodes_left = pickle.load(file)
-    features = tf.convert_to_tensor(features, dtype=tf.float32)
-    response = tf.convert_to_tensor(nb_nodes_left, dtype=tf.float32)
+        sample = pickle.load(file)
+    features = tf.convert_to_tensor(sample['solving_stats'], dtype=tf.float32)
+    response = tf.convert_to_tensor(sample['nb_nodes_left'], dtype=tf.float32)
     return features, response
 
 
@@ -66,7 +66,7 @@ if __name__ == "__main__":
     tf.enable_eager_execution(tfconfig)
     tf.set_random_seed(seed=0)
     
-    data_folder = Path('data/bnb_node_prediction/setcover')
+    data_folder = Path('data/bnb_node_prediction/baseline/setcover')
     output_folder = Path('pretrained-setcover')
 
     train_filenames = [str(filename) for filename in (data_folder/"train_500r_1000c_0.05d").glob('sample*.pkl')]
