@@ -196,7 +196,6 @@ SOLVING_STATS_FEATURES = [
 'cutoffbound',
 'avgpseudocostscorecurrentrun',
 'primalbound',
-'nnodelpiterations',
 'dualboundroot',
 'ndeactivatednodes',
 'ncreatednodesrun',
@@ -206,7 +205,6 @@ SOLVING_STATS_FEATURES = [
 'nstrongbranchs',
 'nlps',
 'nnodelps',
-'nnodeinitlpiterations',
 'gap',
 'avgpseudocostscore_normfirst',
 'nnodes_done',
@@ -215,6 +213,25 @@ SOLVING_STATS_FEATURES = [
 'nbacktracks',
 'avgdualbound_normfirst',
 'avgpseudocostscore_norm',
+'nnodeinitlpiterations',
+'nnodelpiterations',
+#
+'nlpiterations',
+'nrootlpiterations',
+'nrootfirstlpiterations',
+'nprimallpiterations',
+'nduallpiterations',
+'nbarrierlpiterations',
+'nresolvelpiterations',
+'nprimalresolvelpiterations',
+'ndualresolvelpiterations',
+'nnodelpiterations',
+'nnodeinitlpiterations',
+'ndivinglpiterations',
+'nstrongbranchlpiterations',
+'nrootstrongbranchlpiterations',
+#
+'solvingtime',
 ]
 
 
