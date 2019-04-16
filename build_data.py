@@ -51,7 +51,10 @@ def generate_samples(instance_queue, results_queue, nb_samples,
                         if sample_count % 10 == 1:
                             print(f"Saving {sample_path}")
                         with sample_path.open('wb') as f:
-                            pickle.dump((subsample_stats, nb_nodes_left, nb_lp_iterations_left, solving_time_left), f)
+                            pickle.dump({'solving_stats': subsample_stats, 'nb_nodes_left': nb_nodes_left, 
+                                         'nb_lp_iterations_left': nb_lp_iterations_left, 
+                                         'solving_time_left': solving_time_left, 
+                                         'instance_path': result['instance_path']}, f)
     print("Done!")
 
 

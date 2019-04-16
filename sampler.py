@@ -56,7 +56,8 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
                                     'solving_stats': recorder.stats,
                                     'nb_nodes': recorder.nb_nodes,
                                     'nb_lp_iterations': recorder.nb_lp_iterations,
-                                    'solving_time': recorder.solving_time})
+                                    'solving_time': recorder.solving_time,
+                                    'instance_path': instance_path})
         self.results_queue.put(None)
     
     def branchinit(self):
