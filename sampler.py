@@ -44,11 +44,19 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
             model.includeBranchrule(branchrule=self,
                 name="My branching rule", desc="",
                 priority=666666, maxdepth=-1, maxbounddist=1)
+            
             model.optimize()
             nb_nodes_total = model.getNNodes()
+            nb_lp_iterations_total = model.getNLPIterations()
+            solving_time_total = model.getSolvingTime()
             model.freeProb()
             self.results_queue.put({'nb_nodes_total': nb_nodes_total, 
-                                    'solving_stats': recorder.stats})
+                                    'nb_lp_iterations_total': nb_lp_iterations_total, 
+                                    'solving_time_total': solving_time_total, 
+                                    'solving_stats': recorder.stats,
+                                    'nb_nodes': recorder.nb_nodes,
+                                    'nb_lp_iterations': recorder.nb_lp_iterations,
+                                    'solving_time': recorder.solving_time})
         self.results_queue.put(None)
     
     def branchinit(self):
@@ -82,7 +90,7 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
 
     def load_actor(self):
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
-        os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
         tfconfig = tf.ConfigProto()
         tf.enable_eager_execution(tfconfig)
         tf.set_random_seed(seed=self.seed)
@@ -98,6 +106,9 @@ class SolvingStatsRecorder(pyscipopt.Eventhdlr):
     """
     def __init__(self):
         self.stats = []
+        self.nb_nodes = []
+        self.nb_lp_iterations = []
+        self.solving_time = []
 
     def eventinit(self):
         self.model.catchEvent(pyscipopt.SCIP_EVENTTYPE.NODEFEASIBLE, self)
@@ -112,6 +123,9 @@ class SolvingStatsRecorder(pyscipopt.Eventhdlr):
     def eventexec(self, event):
         if len(self.stats) < self.model.getNNodes():
             self.stats.append(self.model.getSolvingStats())
+            self.nb_nodes.append(self.model.getNNodes())
+            self.nb_lp_iterations.append(self.model.getNLPIterations())
+            self.solving_time.append(self.model.getSolvingTime())
 
 
 class Message(enum.Enum):

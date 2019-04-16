@@ -36,20 +36,22 @@ def generate_samples(instance_queue, results_queue, nb_samples,
         print("Processing")
         # Process results
         for result in results:
-            solving_stats, nb_nodes_total = result['solving_stats'], result['nb_nodes_total']
+            solving_stats = result['solving_stats']
             if solving_stats:
                 nb_subsamples = np.ceil(0.05 * len(solving_stats)).astype(int)
                 subsample_ends = np.random.choice(np.arange(1, len(solving_stats)+1), nb_subsamples, replace=False).tolist()
                 for subsample_end in subsample_ends:
                     subsample_stats = scip_utilities.pack_solving_stats(solving_stats[:subsample_end])
-                    nb_nodes_left = nb_nodes_total - subsample_end
+                    nb_nodes_left = result['nb_nodes_total'] - result['nb_nodes'][subsample_end-1]
+                    nb_lp_iterations_left = result['nb_lp_iterations_total'] - result['nb_lp_iterations'][subsample_end-1]
+                    solving_time_left = result['solving_time_total'] - result['solving_time'][subsample_end-1]
                     if sample_count < nb_samples:
                         sample_count += 1
                         sample_path = output_path/f"sample_{sample_count-1}.pkl"
                         if sample_count % 10 == 1:
                             print(f"Saving {sample_path}")
                         with sample_path.open('wb') as f:
-                            pickle.dump((subsample_stats, nb_nodes_left), f)
+                            pickle.dump((subsample_stats, nb_nodes_left, nb_lp_iterations_left, solving_time_left), f)
     print("Done!")
 
 
@@ -61,8 +63,9 @@ if __name__ == "__main__":
     parameters_path = "actor/pretrained-setcover/best_params.pkl"
 
     # Output files
-    output_path = Path("data/bnb_size_prediction/baseline/setcover")
+    # output_path = Path("data/bnb_size_prediction/baseline/setcover")
     # output_path = Path("data/bnb_size_prediction/low_entropy/setcover")
+    output_path = Path("data/bnb_size_prediction/baseline_extended/setcover")
     (output_path/"train_500r_1000c_0.05d").mkdir(parents=True, exist_ok=True)
     (output_path/"test_500r_1000c_0.05d").mkdir(parents=True, exist_ok=True)
 
