@@ -9,8 +9,8 @@ from pathlib import Path
 from model import Model
 
 
-lr_start = 1e-4
-lr_end = 1e-5
+lr_start = 1e-3
+lr_end = 1e-4
 max_epochs = 50
 
 
@@ -19,19 +19,45 @@ def load_instance(filename):
         sample = pickle.load(file)
     features = tf.convert_to_tensor(sample['solving_stats'], dtype=tf.float32)
     response = tf.convert_to_tensor(sample['nb_nodes_left'], dtype=tf.float32)
-    return features, response
+    instance = sample['instance_path']
+    return features, response, instance
 
 
 def load_batch(batch_filenames):
-    batch_features, batch_responses = [], []
+    batch_features, batch_responses, batch_instances = [], [], []
     for count, filename in enumerate(batch_filenames):
-        features, response = load_instance(filename)
+        features, response, instance = load_instance(filename)
         batch_features.append(features)
         batch_responses.append(response)
+        batch_instances.append(instance)
     batch_features = tf.stack(batch_features, axis=0)
     batch_responses = tf.stack(batch_responses, axis=0)
+    batch_instances = tf.stack(batch_instances, axis=0)
 
-    return batch_features, batch_responses
+    return batch_features, batch_responses, batch_instances
+
+
+def get_feature_stats(data, folder):
+    outfile = folder/"feature_stats.pickle"
+    if outfile.exists():
+        with outfile.open('rb') as file:
+            feature_stats = pickle.load(file)
+        feature_means = feature_stats['feature_means']
+        feature_stds  = feature_stats['feature_stds']
+    else:
+        feature_means, feature_stds = [], []
+        for features, _, _ in data:
+            feature_means.append(tf.reduce_mean(features, axis=(0, 1)))
+            mean = tf.expand_dims(tf.expand_dims(feature_means[-1], axis=0), axis=0)
+            std  = tf.reduce_mean(tf.reduce_mean((features - mean) ** 2, axis=0), axis=0)
+            feature_stds.append(tf.sqrt(std))
+        feature_means = tf.reduce_mean(tf.stack(feature_means, axis=0), axis=0).numpy()
+        feature_stds  = tf.reduce_mean(tf.stack(feature_stds, axis=0), axis=0).numpy()
+        feature_stds[feature_stds < 1e-5] = 1.
+        with outfile.open('wb') as file:
+            pickle.dump({'feature_means': feature_means, 'feature_stds': feature_stds}, file)
+    
+    return feature_means, feature_stds
 
 
 def learning_rate(episode):
@@ -40,12 +66,6 @@ def learning_rate(episode):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '-s', '--seed',
-        help='Random generator seed.',
-        type=int,
-        default=0,
-    )
     parser.add_argument(
         '-g', '--gpu',
         help='CUDA GPU id (-1 for CPU).',
@@ -65,66 +85,83 @@ if __name__ == "__main__":
     tfconfig.gpu_options.allow_growth = True
     tf.enable_eager_execution(tfconfig)
     tf.set_random_seed(seed=0)
+    rng = np.random.RandomState(0)
     
-    data_folder = Path('data/bnb_node_prediction/baseline/setcover')
-    output_folder = Path('pretrained-setcover')
+    data_folder = Path('data/bnb_size_prediction/baseline/setcover')
+    train_folder = data_folder/"train_500r_1000c_0.05d"
+    test_folder  = data_folder/"test_500r_1000c_0.05d"
+    output_folder = Path('results/setcover')
+    output_folder.mkdir(parents=True, exist_ok=True)
 
-    train_filenames = [str(filename) for filename in (data_folder/"train_500r_1000c_0.05d").glob('sample*.pkl')]
+    train_filenames = [str(filename) for filename in train_folder.glob('sample*.pkl')]
     train_data = tf.data.Dataset.from_tensor_slices(train_filenames).batch(32)
-    train_data = train_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32]))
+    train_data = train_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
     train_data = train_data.prefetch(1)
 
-    test_filenames = [str(filename) for filename in (data_folder/"test_500r_1000c_0.05d").glob('sample*.pkl')]
+    test_filenames = [str(filename) for filename in test_folder.glob('sample*.pkl')]
     test_data = tf.data.Dataset.from_tensor_slices(test_filenames).batch(128)
-    test_data = test_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32]))
+    test_data = test_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
     test_data = test_data.prefetch(1)
 
-    if (data_folder/"train_500r_1000c_0.05d"/"stats.pickle").exists():
-        with (data_folder/"train_500r_1000c_0.05d"/"stats.pickle").open('rb') as file:
-            feature_stats = pickle.load(file)
-        feature_means = feature_stats['feature_means']
-        feature_stds = feature_stats['feature_stds']
-    else:
-        feature_means, feature_stds = [], []
-        for features, _ in train_data:
-            feature_means.append(tf.reduce_mean(features, axis=(0, 1)))
-            mean = tf.expand_dims(tf.expand_dims(feature_means[-1], axis=0), axis=0)
-            std = tf.reduce_mean(tf.reduce_mean((features - mean) ** 2, axis=0), axis=0)
-            feature_stds.append(tf.sqrt(std))
-        feature_means = tf.reduce_mean(tf.stack(feature_means, axis=0), axis=0).numpy()
-        feature_stds = tf.reduce_mean(tf.stack(feature_stds, axis=0), axis=0).numpy()
-        feature_stds[feature_stds < 1e-5] = 1.
-
-        with (data_folder/"train_500r_1000c_0.05d"/"stats.pickle").open('wb') as file:
-            pickle.dump({'feature_means': feature_means, 'feature_stds': feature_stds}, file)
+    feature_means, feature_stds = get_feature_stats(train_data, train_folder)
+    with open("actor/pretrained-setcover/benchmark.pkl", "rb") as file:
+        benchmark = pickle.load(file)
 
     model = Model(feature_means, feature_stds)
     optimizer = tf.train.AdamOptimizer(lambda: lr)
 
+    best_test_loss = np.inf
     for epoch in range(max_epochs):
         K.backend.set_learning_phase(1) # Set train
+
+        epoch_train_filenames = rng.choice(train_filenames, len(train_filenames), replace=False)
+        train_data = tf.data.Dataset.from_tensor_slices(epoch_train_filenames).batch(32)
+        train_data = train_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
+        train_data = train_data.prefetch(1)
+
         train_loss = []
-        for count, (features, responses) in enumerate(train_data):
+        for count, (features, responses, instances) in enumerate(train_data):
+            response_centers, response_scales = [], []
+            for instance in instances:
+                instance = instance.numpy().decode('utf-8')
+                response_centers.append(benchmark[instance]['nb_nodes_mean'])
+                response_scales.append(benchmark[instance]['nb_nodes_mean']/np.sqrt(12) + benchmark[instance]['nb_nodes_std'])
+            response_centers = tf.cast(tf.stack(response_centers, axis=0), tf.float32)
+            response_scales = tf.cast(tf.stack(response_scales, axis=0), tf.float32)
+            responses = (responses - response_centers) / response_scales
+
             lr = learning_rate(epoch)
             with tf.GradientTape() as tape:
                 predictions = model(features)
-                loss = tf.reduce_mean(tf.square(tf.log(predictions + 1e-5) - tf.log(responses + 1e-5)))
+                loss = tf.reduce_mean(tf.square(predictions - responses))
             grads = tape.gradient(target=loss, sources=model.variables)
             optimizer.apply_gradients(zip(grads, model.variables))
             train_loss.append(loss)
             if count % 500 == 0:
-                print(f"Epoch {epoch}, batch {count}, loss {loss:.2f}")
+                print(f"Epoch {epoch}, batch {count}, loss {loss:.4f}")
         train_loss = tf.reduce_mean(train_loss)
-        print(f"Epoch {epoch}, train loss {train_loss:.2f}")
+        print(f"Epoch {epoch}, train loss {train_loss:.4f}")
 
         K.backend.set_learning_phase(0) # Set test
         test_loss = []
-        for batch_count, (features, responses) in enumerate(test_data):
+        for batch_count, (features, responses, instances) in enumerate(test_data):
+            response_centers, response_scales = [], []
+            for instance in instances:
+                instance = instance.numpy().decode('utf-8')
+                response_centers.append(benchmark[instance]['nb_nodes_mean'])
+                response_scales.append(benchmark[instance]['nb_nodes_mean']/np.sqrt(12) + benchmark[instance]['nb_nodes_std'])
+            response_centers = tf.cast(tf.stack(response_centers, axis=0), tf.float32)
+            response_scales = tf.cast(tf.stack(response_scales, axis=0), tf.float32)
+            responses = (responses - response_centers) / response_scales
+
             predictions = model(features)
-            loss = tf.reduce_mean(tf.square(tf.log(predictions + 1e-5) - tf.log(responses + 1e-5)))
+            loss = tf.reduce_mean(tf.square(predictions - responses))
             test_loss.append(loss)
         test_loss = tf.reduce_mean(test_loss)
-        print(f"Epoch {epoch}, test loss {test_loss:.2f}")
+        print(f"Epoch {epoch}, test loss {test_loss:.4f}")
 
-    output_folder.mkdir(parents=True, exist_ok=True)
-    model.save_state(output_folder/"best_params.pkl")
+        if test_loss < best_test_loss:
+            best_test_loss = test_loss
+            print(" * New best test loss *")
+            model.save_state(output_folder/"best_params.pkl")
+            

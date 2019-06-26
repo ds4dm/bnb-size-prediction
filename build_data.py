@@ -20,15 +20,18 @@ def generate_samples(instance_queue, results_queue, nb_samples,
     file_count = 0
     files = cycle(files)
 
-    print(f"Start of sample generation in in {output_path}")
+    print(f"Start of sample generation in {output_path}")
     while sample_count < nb_samples:
         # Send orders
         print("Solving")
         for _ in range(instance_batch_size):
+            file_ = str(next(files))
+            print(f"Feeding {file_}")
             instance_queue.put({'type': Message.NEW_INSTANCE,
-                                'instance_path': str(next(files))})
+                                'instance_path': file_})
 
         # Receive results
+        print("Retrieving results")
         results = []
         for _ in range(instance_batch_size):
             results.append(results_queue.get())

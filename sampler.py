@@ -1,3 +1,4 @@
+
 """
 Code for the actor sampler, for generating datasets for the critic.
 """
@@ -12,6 +13,7 @@ import pyscipopt
 import scip_utilities
 # from wurlitzer import sys_pipes
 from actor.model import GCNPolicy
+from scipy.special import softmax
 
 
 class ActorSampler(mp.Process, pyscipopt.Branchrule):
@@ -64,7 +66,9 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         self.state_buffer = {}
     
     def branchexeclp(self, allowaddcons):
+        print(f"  {self.name}: Extracting state...", end="")
         state = scip_utilities.extract_state(self.model, self.state_buffer)
+        print(f" done!")
         # convert state to tensors
         c, e, v = state
         state = (
@@ -73,15 +77,15 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
             tf.convert_to_tensor(e['values'], dtype=tf.float32),
             tf.convert_to_tensor(v['values'], dtype=tf.float32),
         )
-        var_logits = self.actor(state).numpy().squeeze(0)
+        nb_constraints = tf.convert_to_tensor([c['values'].shape[0]], dtype=tf.int32)
+        nb_variables = tf.convert_to_tensor([v['values'].shape[0]], dtype=tf.int32)
+        var_logits = self.actor((*state, nb_constraints, nb_variables)).numpy().squeeze(0)
 
         candidate_vars, *_ = self.model.getLPBranchCands()
         candidate_mask = [var.getCol().getLPPos() for var in candidate_vars]
         var_logits = var_logits[candidate_mask]
 
-        # best_var = candidate_vars[var_logits.argmax()]
-        var_logits -= var_logits.max()
-        policy = np.exp(var_logits) / np.exp(var_logits).sum()
+        policy = softmax(var_logits)
         action = np.random.choice(len(policy), 1, p=policy)[0]
         best_var = candidate_vars[action]
 
