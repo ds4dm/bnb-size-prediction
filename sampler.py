@@ -1,10 +1,12 @@
-
 """
 Code for the actor sampler, for generating datasets for the critic.
 """
 import os
 import time
 import enum
+import gzip
+import pickle
+import logging
 import numpy as np
 import multiprocessing as mp
 import tensorflow as tf
@@ -14,23 +16,33 @@ import scip_utilities
 # from wurlitzer import sys_pipes
 from actor.model import GCNPolicy
 from scipy.special import softmax
+from pathlib import Path
 
 
 class ActorSampler(mp.Process, pyscipopt.Branchrule):
-    def __init__(self, parameters_path, instance_queue, results_queue, seed):
+    def __init__(self, parameters_path, nb_solving_stats_samples, id_):
         super().__init__()
         self.parameters_path = parameters_path
-        self.instance_queue = instance_queue
-        self.results_queue = results_queue
-        self.seed = seed
+        self.instance_queue = mp.SimpleQueue()
+        self.nb_solving_stats_samples = nb_solving_stats_samples
+        self.id = id_
+        self.seed = id_
         self.actor = None
-    
+        self._sample_count = 0
+        self._benchmark = {}
+        self._logger = None
+
     def run(self):
         self.load_actor()
+        self.configure_logger()
         while True:
             message = self.instance_queue.get()
             if message['type'] == Message.NEW_INSTANCE:
-                instance_path = message['instance_path']
+                instance_path = str(message['instance_path'])
+                solving_stats_output_dir = message['solving_stats_output_dir']
+                if solving_stats_output_dir is not None:
+                    solving_stats_output_dir = Path(solving_stats_output_dir)/str(self.id)
+                    solving_stats_output_dir.mkdir(parents=True, exist_ok=True)
             elif message['type'] == Message.STOP:
                 break
             else:
@@ -47,28 +59,17 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
                 name="My branching rule", desc="",
                 priority=666666, maxdepth=-1, maxbounddist=1)
             
+            self._logger.info(f"Solving {instance_path}")
             model.optimize()
-            nb_nodes_total = model.getNNodes()
-            nb_lp_iterations_total = model.getNLPIterations()
-            solving_time_total = model.getSolvingTime()
+            self.save_results(model, recorder, instance_path, solving_stats_output_dir)
             model.freeProb()
-            self.results_queue.put({'nb_nodes_total': nb_nodes_total, 
-                                    'nb_lp_iterations_total': nb_lp_iterations_total, 
-                                    'solving_time_total': solving_time_total, 
-                                    'solving_stats': recorder.stats,
-                                    'nb_nodes': recorder.nb_nodes,
-                                    'nb_lp_iterations': recorder.nb_lp_iterations,
-                                    'solving_time': recorder.solving_time,
-                                    'instance_path': instance_path})
-        self.results_queue.put(None)
+        self._logger.info(f"Done!")
     
     def branchinit(self):
         self.state_buffer = {}
     
     def branchexeclp(self, allowaddcons):
-        print(f"  {self.name}: Extracting state...", end="")
         state = scip_utilities.extract_state(self.model, self.state_buffer)
-        print(f" done!")
         # convert state to tensors
         c, e, v = state
         state = (
@@ -92,6 +93,37 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         self.model.branchVar(best_var)
         result = pyscipopt.SCIP_RESULT.BRANCHED
         return {"result": result}
+        
+    def save_results(self, model, recorder, instance_path, solving_stats_output_dir):
+        # Save benchmark
+        if instance_path not in self._benchmark:
+            self._benchmark[instance_path] = {'nb_nodes': [], 'nb_lp_iterations': [], 'solving_time': []}
+        self._benchmark[instance_path]['nb_nodes'].append(model.getNNodes())
+        self._benchmark[instance_path]['nb_lp_iterations'].append(model.getNLPIterations())
+        self._benchmark[instance_path]['solving_time'].append(model.getSolvingTime())
+        with (solving_stats_output_dir/"benchmark.pkl").open("wb") as file:
+            pickle.dump(self._benchmark, file)
+        
+        # Save solving stats samples
+        if solving_stats_output_dir is not None and recorder.stats and self._sample_count < self.nb_solving_stats_samples:
+            nb_subsamples = np.ceil(0.05 * len(recorder.stats)).astype(int)
+            subsample_ends = np.random.choice(np.arange(1, len(recorder.stats)+1), nb_subsamples, replace=False).tolist()
+            for subsample_end in subsample_ends:
+                subsample_stats = scip_utilities.pack_solving_stats(recorder.stats[:subsample_end])
+                nb_nodes_left = model.getNNodes() - recorder.nb_nodes[subsample_end-1]
+                nb_lp_iterations_left = model.getNLPIterations() - recorder.nb_lp_iterations[subsample_end-1]
+                solving_time_left = model.getSolvingTime() - recorder.solving_time[subsample_end-1]
+                if self._sample_count < self.nb_solving_stats_samples:
+                    self._sample_count += 1
+                    sample_path = solving_stats_output_dir/f"sample_{self._sample_count-1}.pkl"
+                    if self._sample_count % 10 == 1:
+                        self._logger.info(f"Saving {sample_path}")
+                    with gzip.open(str(sample_path), 'wb') as file:
+                        pickle.dump({'solving_stats': subsample_stats, 
+                                     'nb_nodes_left': nb_nodes_left, 
+                                     'nb_lp_iterations_left': nb_lp_iterations_left, 
+                                     'solving_time_left': solving_time_left, 
+                                     'instance_path': instance_path}, file)
 
     def load_actor(self):
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
@@ -103,6 +135,17 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         actor = GCNPolicy()
         actor.restore_state(self.parameters_path)
         self.actor = tfe.defun(actor.call)
+
+    def configure_logger(self):
+        self._logger = logging.getLogger("sampler")
+        self._logger.setLevel(logging.DEBUG)
+        os.makedirs("logs/", exist_ok=True)
+        file_handler = logging.FileHandler(f"logs/sampler-{self.id}.log", 'w', 'utf-8')
+        file_handler.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(fmt='[%(asctime)s %(levelname)-8s]  %(message)s',
+                                      datefmt='%H:%M:%S')
+        file_handler.setFormatter(formatter)
+        self._logger.addHandler(file_handler)
 
     
 class SolvingStatsRecorder(pyscipopt.Eventhdlr):
