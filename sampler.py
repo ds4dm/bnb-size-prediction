@@ -7,6 +7,8 @@ import enum
 import gzip
 import pickle
 import logging
+import traceback
+import psutil
 import numpy as np
 import multiprocessing as mp
 import tensorflow as tf
@@ -33,42 +35,56 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         self._logger = None
 
     def run(self):
-        self.load_actor()
         self.configure_logger()
-        while True:
-            message = self.instance_queue.get()
-            if message['type'] == Message.NEW_INSTANCE:
-                instance_path = str(message['instance_path'])
-                solving_stats_output_dir = message['solving_stats_output_dir']
-                if solving_stats_output_dir is not None:
-                    solving_stats_output_dir = Path(solving_stats_output_dir)/str(self.id)
-                    solving_stats_output_dir.mkdir(parents=True, exist_ok=True)
-            elif message['type'] == Message.STOP:
-                break
-            else:
-                raise ValueError(f"Unrecognized message {message}")
+        try:
+            self.load_actor()
+            while True:
+                message = self.instance_queue.get()
+                if message['type'] == Message.NEW_INSTANCE:
+                    instance_path = str(message['instance_path'])
+                    solving_stats_output_dir = message['solving_stats_output_dir']
+                    if solving_stats_output_dir is not None:
+                        solving_stats_output_dir = Path(solving_stats_output_dir)/str(self.id)
+                        solving_stats_output_dir.mkdir(parents=True, exist_ok=True)
+                elif message['type'] == Message.STOP:
+                    break
+                else:
+                    raise ValueError(f"Unrecognized message {message}")
 
-            model = pyscipopt.Model()
-            model.setIntParam('display/verblevel', 0)
-            model.readProblem(instance_path)
-            scip_utilities.init_scip_params(model, seed=self.seed)
+                tf.set_random_seed(self.seed)
+                tf.reset_default_graph()
+                model = pyscipopt.Model()
+                model.setIntParam('display/verblevel', 0)
+                
+                model.readProblem(instance_path)
+                scip_utilities.init_scip_params(model, seed=self.seed)
 
-            recorder = SolvingStatsRecorder()
-            model.includeEventhdlr(recorder, "SolvingStatsRecorder", "")
-            model.includeBranchrule(branchrule=self,
-                name="My branching rule", desc="",
-                priority=666666, maxdepth=-1, maxbounddist=1)
-            
-            self._logger.info(f"Solving {instance_path}")
-            model.optimize()
-            self.save_results(model, recorder, instance_path, solving_stats_output_dir)
-            model.freeProb()
-        self._logger.info(f"Done!")
+                recorder = SolvingStatsRecorder()
+                model.includeEventhdlr(recorder, "SolvingStatsRecorder", "")
+                model.includeBranchrule(branchrule=self,
+                    name="My branching rule", desc="",
+                    priority=666666, maxdepth=-1, maxbounddist=1)
+
+                # DEBUG
+                self._logger.info(f"Solving {instance_path}")
+                print(f"{self.name}: solving {instance_path}")
+                model.optimize()
+                self.save_results(model, recorder, instance_path, solving_stats_output_dir)
+                model.freeProb()
+            self._logger.info(f"Done!")
+        except Exception as exception:
+            info = type(exception), exception, exception.__traceback__
+            self._logger.info(''.join(traceback.format_exception(*info, limit=5)))
+            raise exception
     
     def branchinit(self):
         self.state_buffer = {}
     
     def branchexeclp(self, allowaddcons):
+        # DEBUG
+        if psutil.virtual_memory().percent > 90:
+            self._logger.info(f"    Alert, current memory usage {psutil.virtual_memory().percent} > 90%. ***")
+        
         state = scip_utilities.extract_state(self.model, self.state_buffer)
         # convert state to tensors
         c, e, v = state
@@ -129,12 +145,15 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
         tfconfig = tf.ConfigProto()
+        tfconfig.intra_op_parallelism_threads = 1
+        tfconfig.inter_op_parallelism_threads = 1
+        tfconfig.use_per_session_threads = False
         tf.enable_eager_execution(tfconfig)
         tf.set_random_seed(seed=self.seed)
 
         actor = GCNPolicy()
         actor.restore_state(self.parameters_path)
-        self.actor = tfe.defun(actor.call)
+        self.actor = tfe.defun(actor.call, input_signature=actor.input_signature)
 
     def configure_logger(self):
         self._logger = logging.getLogger("sampler")
@@ -180,3 +199,10 @@ class Message(enum.Enum):
     NEW_INSTANCE = enum.auto()
     INSTANCE_FINISHED = enum.auto()
     STOP = enum.auto()
+
+
+# class InstanceManager:
+#     def __init__(self):
+    
+#     def acquire(instance):
+        

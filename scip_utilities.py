@@ -21,6 +21,8 @@ def init_scip_params(model, seed, heuristics=True, presolving=True, separating=T
     model.setBoolParam('randomization/permutevars', True)
     model.setIntParam('randomization/permutationseed', seed)
     model.setIntParam('randomization/randomseedshift', seed)
+    model.setIntParam('lp/threads', 1)
+    model.setIntParam('parallel/maxnthreads', 1)
 
     # separation only at root node
     model.setIntParam('separating/maxrounds', 0)
