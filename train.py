@@ -1,4 +1,5 @@
 import os
+import gzip
 import argparse
 import pickle
 import numpy as np
@@ -9,13 +10,9 @@ from pathlib import Path
 from model import Model
 
 
-lr_start = 1e-3
-lr_end = 1e-4
-max_epochs = 50
-
 
 def load_instance(filename):
-    with open(filename, 'rb') as file:
+    with gzip.open(filename, 'rb') as file:
         sample = pickle.load(file)
     features = tf.convert_to_tensor(sample['solving_stats'], dtype=tf.float32)
     response = tf.convert_to_tensor(sample['nb_nodes_left'], dtype=tf.float32)
@@ -60,9 +57,6 @@ def get_feature_stats(data, folder):
     return feature_means, feature_stds
 
 
-def learning_rate(episode):
-    return (lr_start-lr_end) / np.e ** episode + lr_end
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -86,8 +80,8 @@ if __name__ == "__main__":
     tf.enable_eager_execution(tfconfig)
     tf.set_random_seed(seed=0)
     rng = np.random.RandomState(0)
-    
-    data_folder = Path('data/bnb_size_prediction/baseline/setcover')
+
+    data_folder = Path('data/bnb_size_prediction/baseline')
     train_folder = data_folder/"train_500r_1000c_0.05d"
     test_folder  = data_folder/"test_500r_1000c_0.05d"
     output_folder = Path('results/setcover')
@@ -97,15 +91,24 @@ if __name__ == "__main__":
     train_data = tf.data.Dataset.from_tensor_slices(train_filenames).batch(32)
     train_data = train_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
     train_data = train_data.prefetch(1)
+    with (train_folder/"benchmark.pkl").open("rb") as file:
+        train_benchmark = pickle.load(file)
 
     test_filenames = [str(filename) for filename in test_folder.glob('sample*.pkl')]
     test_data = tf.data.Dataset.from_tensor_slices(test_filenames).batch(128)
     test_data = test_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
     test_data = test_data.prefetch(1)
+    with (test_folder/"benchmark.pkl").open("rb") as file:
+        test_benchmark = pickle.load(file)
 
     feature_means, feature_stds = get_feature_stats(train_data, train_folder)
-    with open("actor/pretrained-setcover/benchmark.pkl", "rb") as file:
-        benchmark = pickle.load(file)
+
+    lr_start = 1e-3
+    lr_end = 1e-3
+    max_epochs = 200
+
+    def learning_rate(episode):
+        return (lr_start-lr_end) / np.e ** episode + lr_end
 
     model = Model(feature_means, feature_stds)
     optimizer = tf.train.AdamOptimizer(lambda: lr)
@@ -113,7 +116,6 @@ if __name__ == "__main__":
     best_test_loss = np.inf
     for epoch in range(max_epochs):
         K.backend.set_learning_phase(1) # Set train
-
         epoch_train_filenames = rng.choice(train_filenames, len(train_filenames), replace=False)
         train_data = tf.data.Dataset.from_tensor_slices(epoch_train_filenames).batch(32)
         train_data = train_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
@@ -124,21 +126,21 @@ if __name__ == "__main__":
             response_centers, response_scales = [], []
             for instance in instances:
                 instance = instance.numpy().decode('utf-8')
-                response_centers.append(benchmark[instance]['nb_nodes_mean'])
-                response_scales.append(benchmark[instance]['nb_nodes_mean']/np.sqrt(12) + benchmark[instance]['nb_nodes_std'])
+                response_centers.append(np.mean(train_benchmark[instance]['nb_nodes']))
+                response_scales.append(np.mean(train_benchmark[instance]['nb_nodes'])/np.sqrt(12) + np.std(train_benchmark[instance]['nb_nodes']))
             response_centers = tf.cast(tf.stack(response_centers, axis=0), tf.float32)
             response_scales = tf.cast(tf.stack(response_scales, axis=0), tf.float32)
             responses = (responses - response_centers) / response_scales
 
-            lr = learning_rate(epoch)
-            with tf.GradientTape() as tape:
-                predictions = model(features)
-                loss = tf.reduce_mean(tf.square(predictions - responses))
-            grads = tape.gradient(target=loss, sources=model.variables)
-            optimizer.apply_gradients(zip(grads, model.variables))
-            train_loss.append(loss)
-            if count % 500 == 0:
-                print(f"Epoch {epoch}, batch {count}, loss {loss:.4f}")
+        lr = learning_rate(epoch)
+        with tf.GradientTape() as tape:
+            predictions = model(features)
+            loss = tf.reduce_mean(tf.square(predictions - responses))
+        grads = tape.gradient(target=loss, sources=model.variables)
+        optimizer.apply_gradients(zip(grads, model.variables))
+        train_loss.append(loss)
+        if count % 500 == 0:
+            print(f"Epoch {epoch}, batch {count}, loss {loss:.4f}")
         train_loss = tf.reduce_mean(train_loss)
         print(f"Epoch {epoch}, train loss {train_loss:.4f}")
 
@@ -148,8 +150,8 @@ if __name__ == "__main__":
             response_centers, response_scales = [], []
             for instance in instances:
                 instance = instance.numpy().decode('utf-8')
-                response_centers.append(benchmark[instance]['nb_nodes_mean'])
-                response_scales.append(benchmark[instance]['nb_nodes_mean']/np.sqrt(12) + benchmark[instance]['nb_nodes_std'])
+                response_centers.append(np.mean(test_benchmark[instance]['nb_nodes']))
+                response_scales.append(np.mean(test_benchmark[instance]['nb_nodes'])/np.sqrt(12) + np.std(test_benchmark[instance]['nb_nodes']))
             response_centers = tf.cast(tf.stack(response_centers, axis=0), tf.float32)
             response_scales = tf.cast(tf.stack(response_scales, axis=0), tf.float32)
             responses = (responses - response_centers) / response_scales
@@ -164,4 +166,3 @@ if __name__ == "__main__":
             best_test_loss = test_loss
             print(" * New best test loss *")
             model.save_state(output_folder/"best_params.pkl")
-            
