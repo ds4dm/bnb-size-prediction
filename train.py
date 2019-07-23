@@ -81,7 +81,7 @@ if __name__ == "__main__":
     tf.set_random_seed(seed=0)
     rng = np.random.RandomState(0)
 
-    data_folder = Path('data/bnb_size_prediction/baseline')
+    data_folder = Path('data/bnb_size_prediction/setcover')
     train_folder = data_folder/"train_500r_1000c_0.05d"
     test_folder  = data_folder/"test_500r_1000c_0.05d"
     output_folder = Path('results/setcover')
@@ -103,12 +103,14 @@ if __name__ == "__main__":
 
     feature_means, feature_stds = get_feature_stats(train_data, train_folder)
 
-    lr_start = 1e-3
-    lr_end = 1e-3
-    max_epochs = 200
+#     lr_start = 1e-3
+#     lr_end = 1e-3
 
-    def learning_rate(episode):
-        return (lr_start-lr_end) / np.e ** episode + lr_end
+#     def learning_rate(episode):
+#         return (lr_start-lr_end) / np.e ** episode + lr_end
+    lr = 1e-3
+    patience = 20
+    max_epochs = 500
 
     model = Model(feature_means, feature_stds)
     optimizer = tf.train.AdamOptimizer(lambda: lr)
@@ -132,7 +134,7 @@ if __name__ == "__main__":
             response_scales = tf.cast(tf.stack(response_scales, axis=0), tf.float32)
             responses = (responses - response_centers) / response_scales
 
-        lr = learning_rate(epoch)
+#         lr = learning_rate(epoch)
         with tf.GradientTape() as tape:
             predictions = model(features)
             loss = tf.reduce_mean(tf.square(predictions - responses))
@@ -166,3 +168,11 @@ if __name__ == "__main__":
             best_test_loss = test_loss
             print(" * New best test loss *")
             model.save_state(output_folder/"best_params.pkl")
+            patience = 20
+        else:
+            patience -= 1
+            if patience == 0:
+                lr /= 2
+                print(f" * Reduced learning rate to {lr}")
+                patience = 20
+                

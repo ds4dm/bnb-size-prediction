@@ -70,7 +70,7 @@ actor_samplers = [ActorSampler(parameters_path, nb_solving_stats_samples=int(NB_
 for actor_sampler in actor_samplers:
     actor_sampler.start()
 
-train_output_path = Path("data/bnb_size_prediction/baseline/train_500r_1000c_0.05d")
+train_output_path = Path("data/bnb_size_prediction/setcover/train_500r_1000c_0.05d")
 for count, instance_path in enumerate(train_instances):
     if count > NB_TRAIN_SAMPLES/(NB_SAMPLERS*10):
         break
@@ -90,7 +90,7 @@ actor_samplers = [ActorSampler(parameters_path, nb_solving_stats_samples=int(NB_
 for actor_sampler in actor_samplers:
     actor_sampler.start()
 
-test_output_path = Path("data/bnb_size_prediction/baseline/test_500r_1000c_0.05d")
+test_output_path = Path("data/bnb_size_prediction/setcover/test_500r_1000c_0.05d")
 for count, instance_path in enumerate(test_instances):
     if count > NB_TEST_SAMPLES/(NB_SAMPLERS*10):
         break
