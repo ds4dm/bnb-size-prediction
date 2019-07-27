@@ -81,6 +81,7 @@ for count, instance_path in enumerate(train_instances):
 
 for actor_sampler in actor_samplers:
     actor_sampler.instance_queue.put({'type': Message.STOP})
+print("Merging train folders")
 merge_folders(train_output_path)
 
 # Test
@@ -101,6 +102,7 @@ for count, instance_path in enumerate(test_instances):
 
 for actor_sampler in actor_samplers:
     actor_sampler.instance_queue.put({'type': Message.STOP})
+print("Merging test folders")
 merge_folders(test_output_path)
 
     

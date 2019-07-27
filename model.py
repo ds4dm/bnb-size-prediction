@@ -25,15 +25,15 @@ class BaseModel(K.Model):
 
 
 class Model(BaseModel):
-    def __init__(self, feature_means=None, feature_stds=None):
+    def __init__(self, feature_center=None, feature_scale=None):
         super().__init__()
-        if feature_means is None:
-            feature_means = tf.zeros(FEATURE_SIZE)
-        if feature_stds is None:
-            feature_stds = tf.ones(FEATURE_SIZE)
-        self.norm = K.layers.Dense(feature_means.shape[0], trainable=False,
-            kernel_initializer=lambda shape, dtype, partition_info: tf.diag(1/feature_stds),
-            bias_initializer=lambda shape, dtype, partition_info: -feature_means/feature_stds)
+        if feature_center is None:
+            feature_center = tf.zeros(FEATURE_SIZE)
+        if feature_scale is None:
+            feature_scale = tf.ones(FEATURE_SIZE)
+        self.norm = K.layers.Dense(feature_center.shape[0], trainable=False,
+            kernel_initializer=lambda shape, dtype, partition_info: tf.diag(1/feature_scale),
+            bias_initializer=lambda shape, dtype, partition_info: -feature_center/feature_scale)
         self.conv = K.Sequential([
             K.layers.Conv1D(filters=64, kernel_size=5, padding="same", activation='relu', 
                             kernel_initializer=K.initializers.Orthogonal(),

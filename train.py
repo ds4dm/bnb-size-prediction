@@ -35,26 +35,32 @@ def load_batch(batch_filenames):
 
 
 def get_feature_stats(data, folder):
-    outfile = folder/"feature_stats.pickle"
-    if outfile.exists():
-        with outfile.open('rb') as file:
-            feature_stats = pickle.load(file)
-        feature_means = feature_stats['feature_means']
-        feature_stds  = feature_stats['feature_stds']
-    else:
-        feature_means, feature_stds = [], []
-        for features, _, _ in data:
-            feature_means.append(tf.reduce_mean(features, axis=(0, 1)))
-            mean = tf.expand_dims(tf.expand_dims(feature_means[-1], axis=0), axis=0)
-            std  = tf.reduce_mean(tf.reduce_mean((features - mean) ** 2, axis=0), axis=0)
-            feature_stds.append(tf.sqrt(std))
-        feature_means = tf.reduce_mean(tf.stack(feature_means, axis=0), axis=0).numpy()
-        feature_stds  = tf.reduce_mean(tf.stack(feature_stds, axis=0), axis=0).numpy()
-        feature_stds[feature_stds < 1e-5] = 1.
-        with outfile.open('wb') as file:
-            pickle.dump({'feature_means': feature_means, 'feature_stds': feature_stds}, file)
+#     outfile = folder/"feature_stats.pickle"
+    feature_means, feature_stds = [], []
+    for features, _, _ in data:
+        feature_means.append(tf.reduce_mean(features, axis=(0, 1)))
+        mean = tf.expand_dims(tf.expand_dims(feature_means[-1], axis=0), axis=0)
+        std  = tf.reduce_mean(tf.reduce_mean((features - mean) ** 2, axis=0), axis=0)
+        feature_stds.append(tf.sqrt(std))
+    feature_means = tf.reduce_mean(tf.stack(feature_means, axis=0), axis=0).numpy()
+    feature_stds  = tf.reduce_mean(tf.stack(feature_stds, axis=0), axis=0).numpy()
+    feature_stds[feature_stds < 1e-5] = 1.
+    feature_center, feature_scale = feature_means, feature_stds
+
+#         feature_max, feature_min = [], []
+#         for features, _, _ in train_data:
+#             feature_max.append(tf.reduce_max(features, axis=(0, 1)))
+#             feature_min.append(tf.reduce_min(features, axis=(0, 1)))
+#         feature_max = tf.reduce_max(tf.stack(feature_max, axis=0), axis=0).numpy()
+#         feature_min = tf.reduce_min(tf.stack(feature_min, axis=0), axis=0).numpy()
+#         feature_center = (feature_max + feature_min)/2
+#         feature_scale = (feature_max - feature_min)/2
+#         feature_scale[np.abs(feature_scale) < 1e-5] = 1
+        
+#     with outfile.open('wb') as file:
+#         pickle.dump({'feature_center': feature_center, 'feature_scale': feature_scale}, file)
     
-    return feature_means, feature_stds
+    return feature_center, feature_scale
 
 
 
@@ -101,18 +107,12 @@ if __name__ == "__main__":
     with (test_folder/"benchmark.pkl").open("rb") as file:
         test_benchmark = pickle.load(file)
 
-    feature_means, feature_stds = get_feature_stats(train_data, train_folder)
-
-#     lr_start = 1e-3
-#     lr_end = 1e-3
-
-#     def learning_rate(episode):
-#         return (lr_start-lr_end) / np.e ** episode + lr_end
     lr = 1e-3
     patience = 20
     max_epochs = 500
 
-    model = Model(feature_means, feature_stds)
+    feature_center, feature_scale = get_feature_stats(train_data, train_folder)
+    model = Model(feature_center, feature_scale)
     optimizer = tf.train.AdamOptimizer(lambda: lr)
 
     best_test_loss = np.inf
@@ -134,7 +134,6 @@ if __name__ == "__main__":
             response_scales = tf.cast(tf.stack(response_scales, axis=0), tf.float32)
             responses = (responses - response_centers) / response_scales
 
-#         lr = learning_rate(epoch)
         with tf.GradientTape() as tape:
             predictions = model(features)
             loss = tf.reduce_mean(tf.square(predictions - responses))
@@ -149,6 +148,7 @@ if __name__ == "__main__":
         K.backend.set_learning_phase(0) # Set test
         test_loss = []
         for batch_count, (features, responses, instances) in enumerate(test_data):
+
             response_centers, response_scales = [], []
             for instance in instances:
                 instance = instance.numpy().decode('utf-8')
