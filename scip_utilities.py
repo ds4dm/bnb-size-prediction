@@ -2,19 +2,11 @@
 Miscellaneous SCIP-related utilities.
 """
 import numpy as np
+import scipy.sparse as sp
 
 
-def init_scip_params(model, seed, heuristics=True):
-    """
-    Initialize a SCIP model.
-    
-    Parameters
-    ----------
-    seed : int
-        The SCIP seed.
-    heuristics : bool
-        Should heuristics be activated?
-    """
+def init_scip_params(model, seed, heuristics=True, presolving=True, separating=True, conflict=True):
+
     seed = seed % 2147483648  # SCIP seed range
 
     # set up randomization
@@ -22,16 +14,23 @@ def init_scip_params(model, seed, heuristics=True):
     model.setIntParam('randomization/permutationseed', seed)
     model.setIntParam('randomization/randomseedshift', seed)
 
-    # disable presolving and separating (node cuts)
-    model.setIntParam('presolving/maxrounds', 0)
-    model.setIntParam('presolving/maxrestarts', 0)
+    # separation only at root node
     model.setIntParam('separating/maxrounds', 0)
-    model.setIntParam('separating/maxroundsroot', 0)
 
-    # disable conflict analysis (more cuts)
-    model.setBoolParam('conflict/enable', False)
+    # if asked, disable presolving
+    if not presolving:
+        model.setIntParam('presolving/maxrounds', 0)
+        model.setIntParam('presolving/maxrestarts', 0)
 
-    # if asked, disable all heuristics
+    # if asked, disable separating (cuts)
+    if not separating:
+        model.setIntParam('separating/maxroundsroot', 0)
+
+    # if asked, disable conflict analysis (more cuts)
+    if not conflict:
+        model.setBoolParam('conflict/enable', False)
+
+    # if asked, disable primal heuristics
     if not heuristics:
         model.setHeuristics(scip.SCIP_PARAMSETTING.OFF)
 
@@ -51,7 +50,6 @@ def extract_state(model, buffer=None):
     buffer : dict
         A buffer to avoid re-extracting redundant information from the solver
         each time.
-    
     Returns
     -------
     variable_features : dictionary of type {'names': list, 'values': np.ndarray}
@@ -68,25 +66,22 @@ def extract_state(model, buffer=None):
     # update state from buffer if any
     s = model.getState(buffer['scip_state'] if 'scip_state' in buffer else None)
 
-    if 'np_state' not in buffer:
+    if 'state' in buffer:
+        obj_norm = buffer['state']['obj_norm']
+    else:
         obj_norm = np.linalg.norm(s['col']['coefs'])
         obj_norm = 1 if obj_norm <= 0 else obj_norm
-        row_norms = s['row']['norms']
-        row_norms[row_norms == 0] = 1
-        # assume only LHS or RHS type rows
-        assert all(np.isnan(s['row']['lhss'])) or all(np.isnan(s['row']['rhss']))
-        row_dir_lhs = all(np.isnan(s['row']['rhss']))
-    else:
-        constraint_features, edge_features, variable_features, tmp = buffer['np_state']
-        obj_norm = tmp['obj_norm']
-        row_norms = tmp['row_norms']
-        row_dir_lhs = tmp['row_dir_lhs']
+
+    row_norms = s['row']['norms']
+    row_norms[row_norms == 0] = 1
 
     # Column features
     n_cols = len(s['col']['types'])
-    col_feats = {}
 
-    if 'np_state' not in buffer:
+    if 'state' in buffer:
+        col_feats = buffer['state']['col_feats']
+    else:
+        col_feats = {}
         col_feats['type'] = np.zeros((n_cols, 4))  # BINARY INTEGER IMPLINT CONTINUOUS
         col_feats['type'][np.arange(n_cols), s['col']['types']] = 1
         col_feats['coef_normalized'] = s['col']['coefs'].reshape(-1, 1) / obj_norm
@@ -109,81 +104,102 @@ def extract_state(model, buffer=None):
     col_feat_names = [n for names in col_feat_names for n in names]
     col_feat_vals = np.concatenate(list(col_feats.values()), axis=-1)
 
-    # if no buffer, create features
-    if 'np_state' not in buffer:
-        variable_features = {'names': col_feat_names, 'values': col_feat_vals,}
-    # else update feature values
-    else:
-        col_feat_inds = [variable_features['names'].index(feat) for feat in col_feat_names]
-        variable_features['values'][:, col_feat_inds] = col_feat_vals
+    variable_features = {
+        'names': col_feat_names,
+        'values': col_feat_vals,}
 
     # Row features
-    n_rows = len(s['row']['nnzrs'])
-    row_feats = {}
 
-    if 'np_state' not in buffer:
-        row_feats['obj_cosine_similarity'] = s['row']['objcossims'].reshape(-1, 1)
-        if row_dir_lhs:
-            row_feats['obj_cosine_similarity'] *= -1
-            row_feats['bias'] = (-s['row']['lhss'] / row_norms).reshape(-1, 1)
-        else:
-            row_feats['bias'] = (s['row']['rhss'] / row_norms).reshape(-1, 1)
+    if 'state' in buffer:
+        row_feats = buffer['state']['row_feats']
+        has_lhs = buffer['state']['has_lhs']
+        has_rhs = buffer['state']['has_rhs']
+    else:
+        row_feats = {}
+        has_lhs = np.nonzero(~np.isnan(s['row']['lhss']))[0]
+        has_rhs = np.nonzero(~np.isnan(s['row']['rhss']))[0]
+        row_feats['obj_cosine_similarity'] = np.concatenate((
+            -s['row']['objcossims'][has_lhs],
+            +s['row']['objcossims'][has_rhs])).reshape(-1, 1)
+        row_feats['bias'] = np.concatenate((
+            -(s['row']['lhss'] / row_norms)[has_lhs],
+            +(s['row']['rhss'] / row_norms)[has_rhs])).reshape(-1, 1)
 
-    row_feats['is_tight'] = s['row']['is_at_lhs'].reshape(-1, 1)
-    row_feats['dualsol_val_normalized'] = (s['row']['dualsols'] / (row_norms * obj_norm)).reshape(-1, 1)
-    row_feats['dualsol_val_normalized'] /= np.linalg.norm(row_feats['dualsol_val_normalized'])
-    row_feats['basis_status'] = np.zeros((n_rows, 4))  # LOWER BASIC UPPER ZERO
-    row_feats['basis_status'][np.arange(n_rows), s['row']['basestats']] = 1
-    row_feats['age'] = s['row']['ages'].reshape(-1, 1) / (s['stats']['nlps'] + 5)
+    row_feats['is_tight'] = np.concatenate((
+        s['row']['is_at_lhs'][has_lhs],
+        s['row']['is_at_rhs'][has_rhs])).reshape(-1, 1)
+
+    row_feats['age'] = np.concatenate((
+        s['row']['ages'][has_lhs],
+        s['row']['ages'][has_rhs])).reshape(-1, 1) / (s['stats']['nlps'] + 5)
+
+    # # redundant with is_tight
+    # tmp = s['row']['basestats']  # LOWER BASIC UPPER ZERO
+    # tmp[s['row']['lhss'] == s['row']['rhss']] = 4  # LOWER == UPPER for equality constraints
+    # tmp_l = tmp[has_lhs]
+    # tmp_l[tmp_l == 2] = 1  # LHS UPPER -> BASIC
+    # tmp_l[tmp_l == 4] = 2  # EQU UPPER -> UPPER
+    # tmp_l[tmp_l == 0] = 2  # LHS LOWER -> UPPER
+    # tmp_r = tmp[has_rhs]
+    # tmp_r[tmp_r == 0] = 1  # RHS LOWER -> BASIC
+    # tmp_r[tmp_r == 4] = 2  # EQU LOWER -> UPPER
+    # tmp = np.concatenate((tmp_l, tmp_r)) - 1  # BASIC UPPER ZERO
+    # row_feats['basis_status'] = np.zeros((len(has_lhs) + len(has_rhs), 3))
+    # row_feats['basis_status'][np.arange(len(has_lhs) + len(has_rhs)), tmp] = 1
+
+    tmp = s['row']['dualsols'] / (row_norms * obj_norm)
+    row_feats['dualsol_val_normalized'] = np.concatenate((
+            -tmp[has_lhs],
+            +tmp[has_rhs])).reshape(-1, 1)
 
     row_feat_names = [[k, ] if v.shape[1] == 1 else [f'{k}_{i}' for i in range(v.shape[1])] for k, v in row_feats.items()]
     row_feat_names = [n for names in row_feat_names for n in names]
     row_feat_vals = np.concatenate(list(row_feats.values()), axis=-1)
 
-    # if no buffer, create features
-    if 'np_state' not in buffer:
-        constraint_features = {
-            'names': row_feat_names,
-            'values': row_feat_vals,}
-    # else update feature values
-    else:
-        row_feat_inds = [constraint_features['names'].index(feat) for feat in row_feat_names]
-        constraint_features['values'][:, row_feat_inds] = row_feat_vals
+    constraint_features = {
+        'names': row_feat_names,
+        'values': row_feat_vals,}
 
     # Edge features
-    # if no buffer, create features
-    if 'np_state' not in buffer:
-        edge_row_idxs, edge_col_idxs = s['nzrcoef']['rowidxs'], s['nzrcoef']['colidxs']
+    if 'state' in buffer:
+        edge_row_idxs = buffer['state']['edge_row_idxs']
+        edge_col_idxs = buffer['state']['edge_col_idxs']
+        edge_feats = buffer['state']['edge_feats']
+    else:
+        coef_matrix = sp.csr_matrix(
+            (s['nzrcoef']['vals'] / row_norms[s['nzrcoef']['rowidxs']],
+            (s['nzrcoef']['rowidxs'], s['nzrcoef']['colidxs'])),
+            shape=(len(s['row']['nnzrs']), len(s['col']['types'])))
+        coef_matrix = sp.vstack((
+            -coef_matrix[has_lhs, :],
+            coef_matrix[has_rhs, :])).tocoo(copy=False)
+
+        edge_row_idxs, edge_col_idxs = coef_matrix.row, coef_matrix.col
         edge_feats = {}
 
-        edge_feats['coef_normalized'] = (s['nzrcoef']['vals'] / row_norms[edge_row_idxs]).reshape(-1, 1)
-        if row_dir_lhs:
-            edge_feats['coef_normalized'] *= -1
+        edge_feats['coef_normalized'] = coef_matrix.data.reshape(-1, 1)
 
-        edge_feat_names = [[k, ] if v.shape[1] == 1 else [f'{k}_{i}' for i in range(v.shape[1])] for k, v in edge_feats.items()]
-        edge_feat_names = [n for names in edge_feat_names for n in names]
-        edge_feat_indices = np.vstack([edge_row_idxs, edge_col_idxs])
-        edge_feat_vals = np.concatenate(list(edge_feats.values()), axis=-1)
+    edge_feat_names = [[k, ] if v.shape[1] == 1 else [f'{k}_{i}' for i in range(v.shape[1])] for k, v in edge_feats.items()]
+    edge_feat_names = [n for names in edge_feat_names for n in names]
+    edge_feat_indices = np.vstack([edge_row_idxs, edge_col_idxs])
+    edge_feat_vals = np.concatenate(list(edge_feats.values()), axis=-1)
 
-        edge_features = {
-            'names': edge_feat_names,
-            'indices': edge_feat_indices,
-            'values': edge_feat_vals,}
-    # else update feature values
-    else:
-        pass
+    edge_features = {
+        'names': edge_feat_names,
+        'indices': edge_feat_indices,
+        'values': edge_feat_vals,}
 
-    buffer['scip_state'] = s
-    buffer['np_state'] = (
-        constraint_features,
-        edge_features,
-        variable_features,
-        {
+    if 'state' not in buffer:
+        buffer['state'] = {
             'obj_norm': obj_norm,
-            'row_norms': row_norms,
-            'row_dir_lhs': row_dir_lhs,
-        },
-    )
+            'col_feats': col_feats,
+            'row_feats': row_feats,
+            'has_lhs': has_lhs,
+            'has_rhs': has_rhs,
+            'edge_row_idxs': edge_row_idxs,
+            'edge_col_idxs': edge_col_idxs,
+            'edge_feats': edge_feats,
+        }
 
     return constraint_features, edge_features, variable_features
 

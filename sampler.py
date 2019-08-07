@@ -37,7 +37,7 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
             model = pyscipopt.Model()
             model.setIntParam('display/verblevel', 0)
             model.readProblem(instance_path)
-            scip_utilities.init_scip_params(model, seed=self.seed)
+            scip_utilities.init_scip_params(model, seed=self.seed, presolving=False, separating=False, conflict=False)
 
             recorder = SolvingStatsRecorder()
             model.includeEventhdlr(recorder, "SolvingStatsRecorder", "")
@@ -72,8 +72,10 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
             tf.convert_to_tensor(e['indices'], dtype=tf.int32),
             tf.convert_to_tensor(e['values'], dtype=tf.float32),
             tf.convert_to_tensor(v['values'], dtype=tf.float32),
+            tf.convert_to_tensor([c['values'].shape[0]], dtype=tf.int32),
+            tf.convert_to_tensor([v['values'].shape[0]], dtype=tf.int32),
         )
-        var_logits = self.actor(state).numpy().squeeze(0)
+        var_logits = self.actor(state, tf.convert_to_tensor(False)).numpy().squeeze(0)
 
         candidate_vars, *_ = self.model.getLPBranchCands()
         candidate_mask = [var.getCol().getLPPos() for var in candidate_vars]
@@ -98,7 +100,7 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
 
         actor = GCNPolicy()
         actor.restore_state(self.parameters_path)
-        self.actor = tfe.defun(actor.call)
+        self.actor = tfe.defun(actor.call, input_signature=actor.input_signature)
 
     
 class SolvingStatsRecorder(pyscipopt.Eventhdlr):
