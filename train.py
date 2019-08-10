@@ -9,11 +9,6 @@ from pathlib import Path
 from model import Model
 
 
-lr_start = 1e-4
-lr_end = 1e-5
-max_epochs = 50
-
-
 def load_instance(filename):
     with open(filename, 'rb') as file:
         sample = pickle.load(file)
@@ -39,26 +34,30 @@ def load_batch(batch_filenames):
 
 def get_feature_stats(data, folder):
     outfile = folder/"feature_stats.pickle"
-    if outfile.exists():
-        with outfile.open('rb') as file:
-            feature_stats = pickle.load(file)
-        feature_means = feature_stats['feature_means']
-        feature_stds  = feature_stats['feature_stds']
-    else:
-        feature_means, feature_stds = [], []
-        for features, _, _ in data:
-            feature_means.append(tf.reduce_mean(features, axis=(0, 1)))
-            mean = tf.expand_dims(tf.expand_dims(feature_means[-1], axis=0), axis=0)
-            std  = tf.reduce_mean(tf.reduce_mean((features - mean) ** 2, axis=0), axis=0)
-            feature_stds.append(tf.sqrt(std))
-        feature_means = tf.reduce_mean(tf.stack(feature_means, axis=0), axis=0).numpy()
-        feature_stds  = tf.reduce_mean(tf.stack(feature_stds, axis=0), axis=0).numpy()
-        feature_stds[feature_stds < 1e-5] = 1.
-        with outfile.open('wb') as file:
-            pickle.dump({'feature_means': feature_means, 'feature_stds': feature_stds}, file)
+#     if outfile.exists():
+#         with outfile.open('rb') as file:
+#             feature_stats = pickle.load(file)
+#         feature_means = feature_stats['feature_means']
+#         feature_stds  = feature_stats['feature_stds']
+#     else:
+    feature_means, feature_stds = [], []
+    for features, _, _ in data:
+        feature_means.append(tf.reduce_mean(features, axis=(0, 1)))
+        mean = tf.expand_dims(tf.expand_dims(feature_means[-1], axis=0), axis=0)
+        std  = tf.reduce_mean(tf.reduce_mean((features - mean) ** 2, axis=0), axis=0)
+        feature_stds.append(tf.sqrt(std))
+    feature_means = tf.reduce_mean(tf.stack(feature_means, axis=0), axis=0).numpy()
+    feature_stds  = tf.reduce_mean(tf.stack(feature_stds, axis=0), axis=0).numpy()
+    feature_stds[feature_stds < 1e-5] = 1.
+    with outfile.open('wb') as file:
+        pickle.dump({'feature_means': feature_means, 'feature_stds': feature_stds}, file)
     
     return feature_means, feature_stds
 
+
+lr_start = 1e-4
+lr_end = 1e-5
+max_epochs = 50
 
 def learning_rate(episode):
     return (lr_start-lr_end) / np.e ** episode + lr_end
@@ -91,6 +90,7 @@ if __name__ == "__main__":
     tfconfig.gpu_options.allow_growth = True
     tf.enable_eager_execution(tfconfig)
     tf.set_random_seed(seed=0)
+    rng = np.random.RandomState(0)
     
     data_folder = Path('data/crippled_bnb_size_prediction/baseline/setcover')
     train_folder = data_folder/"train_500r_1000c_0.05d"
