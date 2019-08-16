@@ -4,7 +4,7 @@ import tensorflow.keras as K
 
 
 SEQUENCE_LENGTH = 50
-FEATURE_SIZE = 25
+FEATURE_SIZE = 40
 
 
 class BaseModel(K.Model):
@@ -77,5 +77,5 @@ class Model(BaseModel):
         inputs = self.norm(inputs)
         hidden = self.conv(inputs)
         output = self.dense(hidden)
-        output = tf.squeeze(tf.nn.softplus(output), axis=-1)
+        output = tf.squeeze(output, axis=-1)
         return output
