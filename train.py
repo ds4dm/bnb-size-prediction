@@ -1,4 +1,5 @@
 import os
+import gzip
 import argparse
 import pickle
 import numpy as np
@@ -15,7 +16,7 @@ max_epochs = 200
 
 
 def load_instance(filename):
-    with open(filename, 'rb') as file:
+    with gzip.open(filename, 'rb') as file:
         sample = pickle.load(file)
     features = tf.convert_to_tensor(sample['solving_stats'], dtype=tf.float32)
     response = tf.convert_to_tensor(sample['nb_nodes_left'], dtype=tf.float32)
@@ -87,7 +88,7 @@ if __name__ == "__main__":
     tf.set_random_seed(seed=0)
     rng = np.random.RandomState(0)
     
-    data_folder = Path('data/crippled_bnb_size_prediction/baseline/setcover')
+    data_folder = Path('data/retrained_bnb_size_prediction/setcover')
     train_folder = data_folder/"train_500r_1000c_0.05d"
     test_folder  = data_folder/"test_500r_1000c_0.05d"
     output_folder = Path('results/setcover')
@@ -97,15 +98,17 @@ if __name__ == "__main__":
     train_data = tf.data.Dataset.from_tensor_slices(train_filenames).batch(32)
     train_data = train_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
     train_data = train_data.prefetch(1)
+    with (train_folder/"benchmark.pkl").open("rb") as file:
+        train_benchmark = pickle.load(file)
 
     test_filenames = [str(filename) for filename in test_folder.glob('sample*.pkl')]
     test_data = tf.data.Dataset.from_tensor_slices(test_filenames).batch(128)
     test_data = test_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
     test_data = test_data.prefetch(1)
+    with (test_folder/"benchmark.pkl").open("rb") as file:
+        test_benchmark = pickle.load(file)
 
     feature_means, feature_stds = get_feature_stats(train_data, train_folder)
-    with open("actor/pretrained-setcover/benchmark.pkl", "rb") as file:
-        benchmark = pickle.load(file)
 
     model = Model(feature_means, feature_stds)
     optimizer = tf.train.AdamOptimizer(lambda: lr)
@@ -124,8 +127,8 @@ if __name__ == "__main__":
             response_centers, response_scales = [], []
             for instance in instances:
                 instance = instance.numpy().decode('utf-8')
-                response_centers.append(benchmark[instance]['nb_nodes_mean'])
-                response_scales.append(benchmark[instance]['nb_nodes_mean']/np.sqrt(12) + benchmark[instance]['nb_nodes_std'])
+                response_centers.append(np.mean(train_benchmark[instance]['nb_nodes']))
+                response_scales.append(np.mean(train_benchmark[instance]['nb_nodes'])/np.sqrt(12) + np.std(train_benchmark[instance]['nb_nodes']))
             response_centers = tf.cast(tf.stack(response_centers, axis=0), tf.float32)
             response_scales = tf.cast(tf.stack(response_scales, axis=0), tf.float32)
             responses = (responses - response_centers) / response_scales
@@ -148,8 +151,8 @@ if __name__ == "__main__":
             response_centers, response_scales = [], []
             for instance in instances:
                 instance = instance.numpy().decode('utf-8')
-                response_centers.append(benchmark[instance]['nb_nodes_mean'])
-                response_scales.append(benchmark[instance]['nb_nodes_mean']/np.sqrt(12) + benchmark[instance]['nb_nodes_std'])
+                response_centers.append(np.mean(test_benchmark[instance]['nb_nodes']))
+                response_scales.append(np.mean(test_benchmark[instance]['nb_nodes'])/np.sqrt(12) + np.std(test_benchmark[instance]['nb_nodes']))
             response_centers = tf.cast(tf.stack(response_centers, axis=0), tf.float32)
             response_scales = tf.cast(tf.stack(response_scales, axis=0), tf.float32)
             responses = (responses - response_centers) / response_scales
