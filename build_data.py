@@ -11,7 +11,7 @@ from sampler import ActorSampler, Message
 
 
 NB_TRAIN_SAMPLES = 100000
-NB_TEST_SAMPLES = 20000
+NB_VALID_SAMPLES = 20000
 NB_SAMPLERS = 8
 
 # Input files
@@ -57,9 +57,9 @@ input_path = Path("data/instances/setcover/")
 train_instances = (input_path/"train_500r_1000c_0.05d").glob("*.lp")
 train_instances = {path: get_instance_id(path) for path in train_instances}
 train_instances = sorted(train_instances, key=train_instances.__getitem__)
-test_instances = (input_path/"test_500r_1000c_0.05d").glob("*.lp")
-test_instances = {path: get_instance_id(path) for path in test_instances}
-test_instances = sorted(test_instances, key=test_instances.__getitem__)
+valid_instances = (input_path/"valid_500r_1000c_0.05d").glob("*.lp")
+valid_instances = {path: get_instance_id(path) for path in valid_instances}
+valid_instances = sorted(valid_instances, key=valid_instances.__getitem__)
 parameters_path = "actor/pretrained-setcover/best_params.pkl"
 
 # Train
@@ -86,28 +86,28 @@ for actor_sampler in actor_samplers:
 print("Merging train folders")
 merge_folders(train_output_path)
 
-# Test
-# ----
-actor_samplers = [ActorSampler(parameters_path, nb_solving_stats_samples=int(NB_TEST_SAMPLES/NB_SAMPLERS), 
+# Valid
+# -----
+actor_samplers = [ActorSampler(parameters_path, nb_solving_stats_samples=int(NB_VALID_SAMPLES/NB_SAMPLERS), 
                                id_=id_) for id_ in range(NB_SAMPLERS)]
 for actor_sampler in actor_samplers:
     actor_sampler.start()
 
-test_output_path = Path("data/classic_bnb_size_prediction/setcover/test_500r_1000c_0.05d")
-for count, instance_path in enumerate(test_instances):
-    if count > NB_TEST_SAMPLES/(NB_SAMPLERS*10):
+valid_output_path = Path("data/classic_bnb_size_prediction/setcover/valid_500r_1000c_0.05d")
+for count, instance_path in enumerate(valid_instances):
+    if count > NB_valid_SAMPLES/(NB_SAMPLERS*10):
         break
     for actor_sampler in actor_samplers:
         actor_sampler.instance_queue.put({'type': Message.NEW_INSTANCE,
                                           'instance_path': str(instance_path),
-                                          'solving_stats_output_dir': str(test_output_path)})
+                                          'solving_stats_output_dir': str(valid_output_path)})
 
 for actor_sampler in actor_samplers:
     actor_sampler.instance_queue.put({'type': Message.STOP})
 for actor_sampler in actor_samplers:
     actor_sampler.join()
 
-print("Merging test folders")
-merge_folders(test_output_path)
+print("Merging valid folders")
+merge_folders(valid_output_path)
 
     

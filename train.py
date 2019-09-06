@@ -12,7 +12,7 @@ from model import Model
 
 lr_start = 1e-5
 lr_end = 1e-5
-max_epochs = 200
+max_epochs = 50
 
 
 def load_instance(filename):
@@ -88,9 +88,9 @@ if __name__ == "__main__":
     tf.set_random_seed(seed=0)
     rng = np.random.RandomState(0)
     
-    data_folder = Path('data/retrained_bnb_size_prediction/setcover')
+    data_folder = Path('data/classic_bnb_size_prediction/setcover')
     train_folder = data_folder/"train_500r_1000c_0.05d"
-    test_folder  = data_folder/"test_500r_1000c_0.05d"
+    valid_folder  = data_folder/"valid_500r_1000c_0.05d"
     output_folder = Path('results/setcover')
     output_folder.mkdir(parents=True, exist_ok=True)
 
@@ -101,19 +101,19 @@ if __name__ == "__main__":
     with (train_folder/"benchmark.pkl").open("rb") as file:
         train_benchmark = pickle.load(file)
 
-    test_filenames = [str(filename) for filename in test_folder.glob('sample*.pkl')]
-    test_data = tf.data.Dataset.from_tensor_slices(test_filenames).batch(128)
-    test_data = test_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
-    test_data = test_data.prefetch(1)
-    with (test_folder/"benchmark.pkl").open("rb") as file:
-        test_benchmark = pickle.load(file)
+    valid_filenames = [str(filename) for filename in valid_folder.glob('sample*.pkl')]
+    valid_data = tf.data.Dataset.from_tensor_slices(valid_filenames).batch(128)
+    valid_data = valid_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
+    valid_data = valid_data.prefetch(1)
+    with (valid_folder/"benchmark.pkl").open("rb") as file:
+        valid_benchmark = pickle.load(file)
 
     feature_means, feature_stds = get_feature_stats(train_data, train_folder)
 
     model = Model(feature_means, feature_stds)
     optimizer = tf.train.AdamOptimizer(lambda: lr)
 
-    best_test_loss = np.inf
+    best_valid_loss = np.inf
     for epoch in range(max_epochs):
         K.backend.set_learning_phase(1) # Set train
 
@@ -145,26 +145,26 @@ if __name__ == "__main__":
         train_loss = tf.reduce_mean(train_loss)
         print(f"Epoch {epoch}, train loss {train_loss:.4f}")
 
-        K.backend.set_learning_phase(0) # Set test
-        test_loss = []
-        for batch_count, (features, responses, instances) in enumerate(test_data):
+        K.backend.set_learning_phase(0) # Set valid
+        valid_loss = []
+        for batch_count, (features, responses, instances) in enumerate(valid_data):
             response_centers, response_scales = [], []
             for instance in instances:
                 instance = instance.numpy().decode('utf-8')
-                response_centers.append(np.mean(test_benchmark[instance]['nb_nodes']))
-                response_scales.append(np.mean(test_benchmark[instance]['nb_nodes'])/np.sqrt(12) + np.std(test_benchmark[instance]['nb_nodes']))
+                response_centers.append(np.mean(valid_benchmark[instance]['nb_nodes']))
+                response_scales.append(np.mean(valid_benchmark[instance]['nb_nodes'])/np.sqrt(12) + np.std(valid_benchmark[instance]['nb_nodes']))
             response_centers = tf.cast(tf.stack(response_centers, axis=0), tf.float32)
             response_scales = tf.cast(tf.stack(response_scales, axis=0), tf.float32)
             responses = (responses - response_centers) / response_scales
 
             predictions = model(features)
             loss = tf.reduce_mean(tf.square(predictions - responses))
-            test_loss.append(loss)
-        test_loss = tf.reduce_mean(test_loss)
-        print(f"Epoch {epoch}, test loss {test_loss:.4f}")
+            valid_loss.append(loss)
+        valid_loss = tf.reduce_mean(valid_loss)
+        print(f"Epoch {epoch}, validation loss {valid_loss:.4f}")
 
-        if test_loss < best_test_loss:
-            best_test_loss = test_loss
-            print(" * New best test loss *")
+        if valid_loss < best_valid_loss:
+            best_valid_loss = valid_loss
+            print(" * New best validation loss *")
             model.save_state(output_folder/"best_params.pkl")
             
