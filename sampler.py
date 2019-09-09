@@ -61,7 +61,7 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
                 model.setIntParam('display/verblevel', 0)
                 
                 model.readProblem(instance_path)
-                scip_utilities.init_scip_params(model, seed=self.seed)
+                scip_utilities.init_scip_params(model, seed=self.seed, presolving=False, separating=False, conflict=False)
 
                 recorder = SolvingStatsRecorder(sampler=self)
                 model.includeEventhdlr(recorder, "SolvingStatsRecorder", "")
@@ -106,9 +106,9 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         )
         nb_constraints = tf.convert_to_tensor([c['values'].shape[0]], dtype=tf.int32)
         nb_variables = tf.convert_to_tensor([v['values'].shape[0]], dtype=tf.int32)
-        var_logits = self.actor(state).numpy().squeeze(0)
+        var_logits = self.actor((*state, nb_constraints, nb_variables), tf.convert_to_tensor(False)).numpy().squeeze(0)
 
-        candidate_vars, *_ = self.model.getLPBranchCands()
+        candidate_vars, *_ = self.model.getPseudoBranchCands()
         candidate_mask = [var.getCol().getLPPos() for var in candidate_vars]
         var_logits = var_logits[candidate_mask]
 

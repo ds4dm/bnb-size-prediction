@@ -62,29 +62,29 @@ valid_instances = {path: get_instance_id(path) for path in valid_instances}
 valid_instances = sorted(valid_instances, key=valid_instances.__getitem__)
 parameters_path = "actor/pretrained-setcover/best_params.pkl"
 
-# Train
-# -----
-actor_samplers = [ActorSampler(parameters_path, nb_solving_stats_samples=int(NB_TRAIN_SAMPLES/NB_SAMPLERS), 
-                               id_=id_) for id_ in range(NB_SAMPLERS)]
-for actor_sampler in actor_samplers:
-    actor_sampler.start()
+# # Train
+# # -----
+# actor_samplers = [ActorSampler(parameters_path, nb_solving_stats_samples=int(NB_TRAIN_SAMPLES/NB_SAMPLERS), 
+#                                id_=id_) for id_ in range(NB_SAMPLERS)]
+# for actor_sampler in actor_samplers:
+#     actor_sampler.start()
 
-train_output_path = Path("data/classic_bnb_size_prediction/setcover/train_500r_1000c_0.05d")
-for count, instance_path in enumerate(train_instances):
-    if count > NB_TRAIN_SAMPLES/(NB_SAMPLERS*10):
-        break
-    for actor_sampler in actor_samplers:
-        actor_sampler.instance_queue.put({'type': Message.NEW_INSTANCE,
-                                          'instance_path': str(instance_path),
-                                          'solving_stats_output_dir': str(train_output_path)})
+# train_output_path = Path("data/bnb_size_prediction/setcover/train_500r_1000c_0.05d")
+# for count, instance_path in enumerate(train_instances):
+#     if count > NB_TRAIN_SAMPLES/(NB_SAMPLERS*10):
+#         break
+#     for actor_sampler in actor_samplers:
+#         actor_sampler.instance_queue.put({'type': Message.NEW_INSTANCE,
+#                                           'instance_path': str(instance_path),
+#                                           'solving_stats_output_dir': str(train_output_path)})
 
-for actor_sampler in actor_samplers:
-    actor_sampler.instance_queue.put({'type': Message.STOP})
-for actor_sampler in actor_samplers:
-    actor_sampler.join()
+# for actor_sampler in actor_samplers:
+#     actor_sampler.instance_queue.put({'type': Message.STOP})
+# for actor_sampler in actor_samplers:
+#     actor_sampler.join()
 
-print("Merging train folders")
-merge_folders(train_output_path)
+# print("Merging train folders")
+# merge_folders(train_output_path)
 
 # Valid
 # -----
@@ -93,9 +93,9 @@ actor_samplers = [ActorSampler(parameters_path, nb_solving_stats_samples=int(NB_
 for actor_sampler in actor_samplers:
     actor_sampler.start()
 
-valid_output_path = Path("data/classic_bnb_size_prediction/setcover/valid_500r_1000c_0.05d")
+valid_output_path = Path("data/bnb_size_prediction/setcover/valid_500r_1000c_0.05d")
 for count, instance_path in enumerate(valid_instances):
-    if count > NB_valid_SAMPLES/(NB_SAMPLERS*10):
+    if count > NB_VALID_SAMPLES/(NB_SAMPLERS*10):
         break
     for actor_sampler in actor_samplers:
         actor_sampler.instance_queue.put({'type': Message.NEW_INSTANCE,
