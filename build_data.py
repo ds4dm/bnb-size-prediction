@@ -54,23 +54,23 @@ def merge_folders(output_path):
             sample_folder.rmdir()
 
 
-# # Setcover
-# input_path = Path("data/instances/setcover/")
-# output_path = Path("data/bnb_size_prediction/setcover")
-# train_instances = (input_path/"train_500r_1000c_0.05d").glob("*.lp")
-# valid_instances = (input_path/"valid_500r_1000c_0.05d").glob("*.lp")
-# train_output_path = output_path/"train_500r_1000c_0.05d"
-# valid_output_path = output_path/"valid_500r_1000c_0.05d"
-# parameters_path = "actor/pretrained-setcover/best_params.pkl"
+# Setcover
+input_path = Path("data/instances/setcover/")
+output_path = Path("data/bnb_size_prediction/setcover")
+train_instances = (input_path/"train_500r_1000c_0.05d").glob("*.lp")
+valid_instances = (input_path/"valid_500r_1000c_0.05d").glob("*.lp")
+train_output_path = output_path/"train_500r_1000c_0.05d"
+valid_output_path = output_path/"valid_500r_1000c_0.05d"
+parameters_path = "actor/pretrained-setcover/best_params.pkl"
 
-# Mknapsack
-input_path = Path("data/instances/mknapsack/")
-output_path = Path("data/bnb_size_prediction/mknapsack")
-train_instances = (input_path/"train_100_6").glob("*.lp")
-valid_instances = (input_path/"valid_100_6").glob("*.lp")
-train_output_path = output_path/"train_100_6"
-valid_output_path = output_path/"valid_100_6"
-parameters_path = "actor/pretrained-mknapsack/best_params.pkl"
+# # Mknapsack
+# input_path = Path("data/instances/mknapsack/")
+# output_path = Path("data/bnb_size_prediction/mknapsack")
+# train_instances = (input_path/"train_100_6").glob("*.lp")
+# valid_instances = (input_path/"valid_100_6").glob("*.lp")
+# train_output_path = output_path/"train_100_6"
+# valid_output_path = output_path/"valid_100_6"
+# parameters_path = "actor/pretrained-mknapsack/best_params.pkl"
 
 train_instances = {path: get_instance_id(path) for path in train_instances}
 train_instances = sorted(train_instances, key=train_instances.__getitem__)

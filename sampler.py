@@ -61,7 +61,7 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
                 model.setIntParam('display/verblevel', 0)
                 
                 model.readProblem(instance_path)
-                scip_utilities.init_scip_params(model, seed=self.seed, presolving=False, separating=False, conflict=False)
+                scip_utilities.init_scip_params(model, seed=self.seed)
 
                 recorder = SolvingStatsRecorder(sampler=self)
                 model.includeEventhdlr(recorder, "SolvingStatsRecorder", "")
@@ -86,6 +86,9 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
             self._logger.info(''.join(traceback.format_exception(*info, limit=5)))
             raise exception
         
+    def branchinit(self):
+        self.state_buffer = {}
+    
     def branchinitsol(self):
         self.state_buffer = {}
     

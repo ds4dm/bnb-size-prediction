@@ -32,8 +32,8 @@ class Model(BaseModel):
         if feature_stds is None:
             feature_stds = tf.ones(FEATURE_SIZE)
         self.norm = K.layers.Dense(feature_means.shape[0], trainable=False,
-            kernel_initializer=lambda shape, dtype, partition_info: tf.diag(1/feature_stds),
-            bias_initializer=lambda shape, dtype, partition_info: -feature_means/feature_stds)
+            kernel_initializer=lambda shape, dtype: tf.diag(1/feature_stds),
+            bias_initializer=lambda shape, dtype: -feature_means/feature_stds)
         self.conv = K.Sequential([
             K.layers.Conv1D(filters=64, kernel_size=5, padding="same", activation='relu', 
                             kernel_initializer=K.initializers.Orthogonal(),

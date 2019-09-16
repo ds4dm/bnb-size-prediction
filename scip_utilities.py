@@ -60,9 +60,9 @@ def extract_state(model, buffer=None):
     constraint_features : dictionary of type {'names': list, 'values': np.ndarray}
         The features associated with the constraint nodes in the bipartite graph.
     """
-    if buffer is None:
+    if buffer is None or model.getNNodes() == 1:
         buffer = {}
-
+    
     # update state from buffer if any
     s = model.getState(buffer['scip_state'] if 'scip_state' in buffer else None)
 
