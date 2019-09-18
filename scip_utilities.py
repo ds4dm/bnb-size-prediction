@@ -271,6 +271,7 @@ def normalize_solving_stats(solving_stats, length=SOLVING_STATS_SEQUENCE_LENGTH)
     solving_stats['lp_obj_norm'] = lp_obj_norm
     lp_obj_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats['lp_obj']]
     solving_stats['lp_obj_normfirst'] = lp_obj_normfirst
+    solving_stats['avgdualbound'] /= (np.abs(solving_stats['avglowerbound']) + solving_stats['dualbound'])
     avgdualbound_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats['avgdualbound']]
     solving_stats['avgdualbound_normfirst'] = avgdualbound_normfirst
     avgpseudocostscore_norm = [(v - lb) / ((ub - lb) if ub > lb else 1) for v, lb, ub in zip(solving_stats['avgpseudocostscore'], solving_stats['dualbound'], solving_stats['primalbound'])]
@@ -286,5 +287,3 @@ def normalize_solving_stats(solving_stats, length=SOLVING_STATS_SEQUENCE_LENGTH)
         opennodes_quint_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats[quint]]
         solving_stats[quint_normfirst] = opennodes_quint_normfirst
     return solving_stats
-
-
