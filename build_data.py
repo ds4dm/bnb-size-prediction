@@ -12,7 +12,7 @@ from sampler import ActorSampler, Message
 
 NB_TRAIN_SAMPLES = 100000
 NB_VALID_SAMPLES = 20000
-NB_SAMPLERS = 8
+NB_SAMPLERS = 16
 
 # Input files
 def get_instance_id(path):
@@ -95,7 +95,7 @@ for actor_sampler in actor_samplers:
 
 valid_output_path = Path("data/classic_bnb_size_prediction/setcover/valid_500r_1000c_0.05d")
 for count, instance_path in enumerate(valid_instances):
-    if count > NB_valid_SAMPLES/(NB_SAMPLERS*10):
+    if count > NB_VALID_SAMPLES/(NB_SAMPLERS*10):
         break
     for actor_sampler in actor_samplers:
         actor_sampler.instance_queue.put({'type': Message.NEW_INSTANCE,

@@ -91,7 +91,7 @@ if __name__ == "__main__":
     data_folder = Path('data/classic_bnb_size_prediction/setcover')
     train_folder = data_folder/"train_500r_1000c_0.05d"
     valid_folder  = data_folder/"valid_500r_1000c_0.05d"
-    output_folder = Path('results/setcover')
+    output_folder = Path('results/classic_setcover')
     output_folder.mkdir(parents=True, exist_ok=True)
 
     train_filenames = [str(filename) for filename in train_folder.glob('sample*.pkl')]
