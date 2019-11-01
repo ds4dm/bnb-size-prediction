@@ -60,7 +60,7 @@ train_instances = sorted(train_instances, key=train_instances.__getitem__)
 valid_instances = (input_path/"valid_500r_1000c_0.05d").glob("*.lp")
 valid_instances = {path: get_instance_id(path) for path in valid_instances}
 valid_instances = sorted(valid_instances, key=valid_instances.__getitem__)
-parameters_path = "actor/pretrained-setcover/best_params.pkl"
+parameters_path = "actor/setcover/best_params.pkl"
 
 # Train
 # -----
