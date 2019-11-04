@@ -88,10 +88,10 @@ if __name__ == "__main__":
     tf.set_random_seed(seed=0)
     rng = np.random.RandomState(0)
     
-    data_folder = Path('data/classic_bnb_size_prediction/setcover')
-    train_folder = data_folder/"train_500r_1000c_0.05d"
-    valid_folder  = data_folder/"valid_500r_1000c_0.05d"
-    output_folder = Path('results/setcover')
+    data_folder = Path('data/classic_bnb_size_prediction/cauctions')
+    train_folder = data_folder/"train_100_500"
+    valid_folder  = data_folder/"valid_100_500"
+    output_folder = Path('results/cauctions')
     output_folder.mkdir(parents=True, exist_ok=True)
 
     train_filenames = [str(filename) for filename in train_folder.glob('sample*.pkl')]

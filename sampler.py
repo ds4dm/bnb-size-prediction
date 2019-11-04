@@ -37,11 +37,13 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         self._return = None
         self._reoptimization_count = None
         self._nb_steps = None
+        self._actor_weights = None
 
     def run(self):
         self.configure_logger()
         try:
             self.load_actor()
+            # DEBUG
             while True:
                 message = self.instance_queue.get()
                 if message['type'] == Message.NEW_INSTANCE:
@@ -55,6 +57,7 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
                 else:
                     raise ValueError(f"Unrecognized message {message}")
 
+                self.actor = tfe.defun(self._actor_weights.call)
                 tf.set_random_seed(self.seed)
                 tf.reset_default_graph()
                 model = pyscipopt.Model()
@@ -79,6 +82,7 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
                 if self._nb_steps > 0:
                     self._return += self._reward()
                     self.save_results(model, recorder, instance_path, solving_stats_output_dir)
+                self._logger.info(f"Done solving {instance_path}")
                 model.freeProb()
             self._logger.info(f"Done!")
         except Exception as exception:
@@ -167,10 +171,9 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         tfconfig.use_per_session_threads = False
         tf.enable_eager_execution(tfconfig)
         tf.set_random_seed(seed=self.seed)
-
-        actor = GCNPolicy()
-        actor.restore_state(self.parameters_path)
-        self.actor = tfe.defun(actor.call)
+        
+        self._actor_weights = GCNPolicy()
+        self._actor_weights.restore_state(self.parameters_path)
 
     def configure_logger(self):
         self._logger = logging.getLogger("sampler")

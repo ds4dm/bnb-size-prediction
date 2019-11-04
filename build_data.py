@@ -12,7 +12,7 @@ from sampler import ActorSampler, Message
 
 NB_TRAIN_SAMPLES = 100000
 NB_VALID_SAMPLES = 20000
-NB_SAMPLERS = 16
+NB_SAMPLERS = 8
 
 # Input files
 def get_instance_id(path):
@@ -53,14 +53,16 @@ def merge_folders(output_path):
             (sample_folder/"benchmark.pkl").unlink()
             sample_folder.rmdir()
 
-input_path = Path("data/instances/setcover/")
-train_instances = (input_path/"train_500r_1000c_0.05d").glob("*.lp")
-train_instances = {path: get_instance_id(path) for path in train_instances}
+problem = "cauctions"
+train_folder = Path(problem)/"train_100_500"
+valid_folder = Path(problem)/"valid_100_500"
+instance_path = Path("data/instances/")
+parameters_path = Path("actor")/problem/"params.pkl"
+
+train_instances = {path: get_instance_id(path) for path in (instance_path/train_folder).glob("*.lp")}
 train_instances = sorted(train_instances, key=train_instances.__getitem__)
-valid_instances = (input_path/"valid_500r_1000c_0.05d").glob("*.lp")
-valid_instances = {path: get_instance_id(path) for path in valid_instances}
+valid_instances = {path: get_instance_id(path) for path in (instance_path/valid_folder).glob("*.lp")}
 valid_instances = sorted(valid_instances, key=valid_instances.__getitem__)
-parameters_path = "actor/setcover/params.pkl"
 
 # Train
 # -----
@@ -69,7 +71,7 @@ actor_samplers = [ActorSampler(parameters_path, nb_solving_stats_samples=int(NB_
 for actor_sampler in actor_samplers:
     actor_sampler.start()
 
-train_output_path = Path("data/classic_bnb_size_prediction/setcover/train_500r_1000c_0.05d")
+train_output_path = Path("data/classic_bnb_size_prediction")/train_folder
 for count, instance_path in enumerate(train_instances):
     if count > NB_TRAIN_SAMPLES/(NB_SAMPLERS*10):
         break
@@ -93,7 +95,7 @@ actor_samplers = [ActorSampler(parameters_path, nb_solving_stats_samples=int(NB_
 for actor_sampler in actor_samplers:
     actor_sampler.start()
 
-valid_output_path = Path("data/classic_bnb_size_prediction/setcover/valid_500r_1000c_0.05d")
+valid_output_path = Path("data/classic_bnb_size_prediction")/valid_folder
 for count, instance_path in enumerate(valid_instances):
     if count > NB_VALID_SAMPLES/(NB_SAMPLERS*10):
         break
