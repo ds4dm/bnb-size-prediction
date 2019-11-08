@@ -88,7 +88,7 @@ if __name__ == "__main__":
     tf.set_random_seed(seed=0)
     rng = np.random.RandomState(0)
     
-    data_folder = Path('data/classic_bnb_size_prediction/cauctions')
+    data_folder = Path('data/newscip_bnb_size_prediction/cauctions')
     train_folder = data_folder/"train_100_500"
     valid_folder  = data_folder/"valid_100_500"
     output_folder = Path('results/cauctions')
