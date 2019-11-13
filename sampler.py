@@ -57,14 +57,16 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
                 else:
                     raise ValueError(f"Unrecognized message {message}")
 
-                self.actor = tfe.defun(self._actor_weights.call)
+                self.actor = tfe.defun(self._actor_weights.call, 
+                                       input_signature=self._actor_weights.input_signature)
                 tf.set_random_seed(self.seed)
                 tf.reset_default_graph()
                 model = pyscipopt.Model()
                 model.setIntParam('display/verblevel', 0)
                 
                 model.readProblem(instance_path)
-                scip_utilities.init_scip_params(model, seed=self.seed)
+                scip_utilities.init_scip_params(model, seed=self.seed, presolving=False, 
+                                                separating=False, conflict=False)
 
                 recorder = SolvingStatsRecorder(sampler=self)
                 model.includeEventhdlr(recorder, "SolvingStatsRecorder", "")
@@ -107,10 +109,10 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
             tf.convert_to_tensor(e['indices'], dtype=tf.int32),
             tf.convert_to_tensor(e['values'], dtype=tf.float32),
             tf.convert_to_tensor(v['values'], dtype=tf.float32),
+            tf.convert_to_tensor([c['values'].shape[0]], dtype=tf.int32),
+            tf.convert_to_tensor([v['values'].shape[0]], dtype=tf.int32),
         )
-        nb_constraints = tf.convert_to_tensor([c['values'].shape[0]], dtype=tf.int32)
-        nb_variables = tf.convert_to_tensor([v['values'].shape[0]], dtype=tf.int32)
-        var_logits = self.actor(state).numpy().squeeze(0)
+        var_logits = self.actor(state, tf.convert_to_tensor(False)).numpy().squeeze(0)
 
         candidate_vars, *_ = self.model.getLPBranchCands()
         candidate_mask = [var.getCol().getLPPos() for var in candidate_vars]
