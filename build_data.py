@@ -12,7 +12,7 @@ from sampler import ActorSampler, Message
 
 NB_TRAIN_SAMPLES = 100000
 NB_VALID_SAMPLES = 20000
-NB_SAMPLERS = 8
+NB_SAMPLERS = 16
 
 # Input files
 def get_instance_id(path):
@@ -71,7 +71,7 @@ actor_samplers = [ActorSampler(parameters_path, nb_solving_stats_samples=int(NB_
 for actor_sampler in actor_samplers:
     actor_sampler.start()
 
-train_output_path = Path("data/newmodel_bnb_size_prediction")/train_folder
+train_output_path = Path("data/phase3_bnb_size_prediction")/train_folder
 for count, instance_path in enumerate(train_instances):
     if count > NB_TRAIN_SAMPLES/(NB_SAMPLERS*10):
         break
@@ -95,7 +95,7 @@ actor_samplers = [ActorSampler(parameters_path, nb_solving_stats_samples=int(NB_
 for actor_sampler in actor_samplers:
     actor_sampler.start()
 
-valid_output_path = Path("data/newmodel_bnb_size_prediction")/valid_folder
+valid_output_path = Path("data/phase3_bnb_size_prediction")/valid_folder
 for count, instance_path in enumerate(valid_instances):
     if count > NB_VALID_SAMPLES/(NB_SAMPLERS*10):
         break
