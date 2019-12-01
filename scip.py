@@ -66,11 +66,12 @@ class Scip(mp.Process, pyscipopt.Branchrule):
                     self.data_recorder['rewards'].append(reward)
                     self.tell({'type': ScipMessage.INSTANCE_FINISHED,
                                'reward': reward,
-                               'nb_nodes_final': model.getNNodes(),
-                               'solving_time_final': model.getSolvingTime(),
-                               'nb_lp_iterations_final': model.getNLPIterations(),
+                               'nb_nodes': model.getNNodes(),
+                               'solving_time': model.getSolvingTime(),
+                               'nb_lp_iterations': model.getNLPIterations(),
                                'gap': model.getGap(),
-                               'status': model.getStatus()})
+                               'status': model.getStatus(),
+                               'time_series_data':self.data_recorder})
                 model.freeProb()
 
         except Exception as exception:

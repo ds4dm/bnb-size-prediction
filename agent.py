@@ -117,10 +117,10 @@ class AsyncAgent(threading.Thread):
                 self.stats['gap'] = message['gap']
                 self.stats['status'] = message['status']
                 if self.record_states:
-                    self.stats['c_states'] = self.scip.data_recorder['c_states']
-                    self.stats['nb_nodes'] = self.scip.data_recorder['nb_nodes']
-                    self.stats['nb_lp_iterations'] = self.scip.data_recordere['nb_lp_iterations']
-                    self.stats['rewards'] = self.scip.data_recorder['rewards']
+                    self.stats['c_states'] = message['time_series_data']['c_states']
+                    self.stats['nb_nodes'] = message['time_series_data']['nb_nodes']
+                    self.stats['nb_lp_iterations'] = message['time_series_data']['nb_lp_iterations']
+                    self.stats['rewards'] = message['time_series_data']['rewards']
                 self.instance_finished.set()
                 logger.info("Instance finished")
 
