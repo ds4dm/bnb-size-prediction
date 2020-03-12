@@ -1,0 +1,3 @@
+{"lr_start" : 5e-5,
+  "lr_end" : 1e-5,
+  "max_epochs" : 50}

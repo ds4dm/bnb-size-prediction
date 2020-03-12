@@ -96,16 +96,16 @@ class PreNormLayer(K.layers.Layer):
 
     def stop_updates(self):
         """
-        Ends pre-training for that layer, and fixes the layers's parameters.        
+        Ends pre-training for that layer, and fixes the layers's parameters.
         """
         assert self.count > 0
         if self.shift is not None:
             self.shift.assign(-self.avg)
-        
+
         if self.scale is not None:
             self.var = tf.where(tf.equal(self.var, 0), tf.ones_like(self.var), self.var)  # NaN check trick
             self.scale.assign(1 / np.sqrt(self.var))
-        
+
         del self.avg, self.var, self.m2, self.count
         self.waiting_updates = False
         self.trainable = False
@@ -436,5 +436,3 @@ class GCNPolicy(BaseModel):
             output = self.pad_output(output, n_vars_per_sample)
 
         return output
-
-
