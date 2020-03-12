@@ -107,7 +107,7 @@ if __name__ == "__main__":
     problem = args.problem
 
     config = load_config("config.json")
-    comet = comet_ml.Experiment(api_key="xCaAM25e8bq2hoQf0FQ1Ac0Pf", project_name="pretraining", workspace="lascavana")
+    comet = comet_ml.Experiment(api_key="xCaAM25e8bq2hoQf0FQ1Ac0Pf", project_name="pretraining", workspace="lascavana", disabled=True)
     comet.log_parameters(config)
 
     tfconfig = tf.ConfigProto()
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     """      ~~~~~      LOAD DATA       ~~~~~     """
     """      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     """
 
-    data_folder = Path("data/phase3_bnb_size_prediction/")
+    data_folder = Path("data/bnb_size_prediction/")
     train_folder = data_folder/"train"
     valid_folder  = data_folder/"test"
     output_folder = Path(f'results/{problem}')

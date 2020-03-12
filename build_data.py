@@ -36,7 +36,7 @@ def update_benchmark(benchmark,result):
 # Parameters
 N_AGENTS = 8
 problem = 'cauctions'
-type = 'train'
+type = 'test'
 gpu = 1
 seed = 0
 gamma = 0.99
@@ -45,18 +45,18 @@ nb_samples = {'train':100000,'test':20000}
 
 files = {}
 if problem == 'setcover':
-    data_folder = Path('/datasets/learn2branch-neurips-final/instances/setcover')
+    data_folder = Path('data/instances/setcover')
     files['train'] = (data_folder/"train_500r_1000c_0.05d").glob("*.lp")
     files['test'] = (data_folder/"test_500r_1000c_0.05d").glob("*.lp")
 elif problem == 'cauctions':
-    data_folder = Path('/datasets/learn2branch-neurips-final/instances/cauctions')
+    data_folder = Path('data/instances/cauctions')
     files['train'] = (data_folder/"train_100_500").glob("*.lp")
     files['test'] = (data_folder/"test_100_500").glob("*.lp")
 else:
     assert 0
 
 parameters_path = f"actor/{problem}/params.pkl"
-output_path = Path(f"data/phase3_bnb_size_prediction/"+type)
+output_path = Path(f"data/bnb_size_prediction/"+type)
 (output_path).mkdir(parents=True, exist_ok=True)
 
 
