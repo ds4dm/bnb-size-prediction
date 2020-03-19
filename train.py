@@ -1,5 +1,6 @@
 import os
 import gzip
+import wandb
 import comet_ml
 import argparse
 import pickle
@@ -77,13 +78,14 @@ def get_response_normalization(instances,benchmark):
     scale = tf.cast(tf.stack(scale, axis=0), tf.float32)
     return shift, scale
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'problem',
         help='Setcover or cauctions',
         type=str,
-        choices=['setcover','cauctions'],
+        choices=['setcover', 'cauctions'],
     )
     parser.add_argument(
         '-g', '--gpu',
@@ -104,11 +106,9 @@ if __name__ == "__main__":
     else:
         print(f"Using GPU {args.gpu}")
         os.environ['CUDA_VISIBLE_DEVICES'] = f'{args.gpu}'
-    problem = args.problem
 
     config = load_config("config.json")
-    comet = comet_ml.Experiment(api_key="xCaAM25e8bq2hoQf0FQ1Ac0Pf", project_name="pretraining", workspace="lascavana", disabled=True)
-    comet.log_parameters(config)
+    wandb.init(project="bnb-size-prediction", config=config)
 
     tfconfig = tf.ConfigProto()
     tfconfig.gpu_options.allow_growth = True
@@ -117,15 +117,14 @@ if __name__ == "__main__":
     rng = np.random.RandomState(0)
 
 
-
     """      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     """
     """      ~~~~~      LOAD DATA       ~~~~~     """
     """      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     """
 
-    data_folder = Path("data/bnb_size_prediction/")
+    data_folder = Path("data/bnb_size_prediction/")/args.problem
     train_folder = data_folder/"train"
-    valid_folder  = data_folder/"test"
-    output_folder = Path(f'results/{problem}')
+    valid_folder  = data_folder/"valid"
+    output_folder = Path("results")/args.problem
     output_folder.mkdir(parents=True, exist_ok=True)
 
     train_filenames = [str(filename) for filename in train_folder.glob('sample*.pkl')]
@@ -143,9 +142,7 @@ if __name__ == "__main__":
         valid_benchmark = pickle.load(file)
 
     feature_means, feature_stds = get_feature_stats(train_data, train_folder)
-
     model = Model(feature_means, feature_stds)
-
 
 
     """      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     """
@@ -179,14 +176,14 @@ if __name__ == "__main__":
             if count % 500 == 0:
                 print(f"Epoch {epoch}, batch {count}, loss {loss:.4f}")
         train_loss = tf.reduce_mean(train_loss)
-        comet.log_metric('train_loss', train_loss.numpy(), step=epoch)
-        comet.log_metric('train_transformed_loss', np.mean(transformed_loss), step=epoch)
+        wandb.log({'train_loss': train_loss.numpy(), 
+                   'train_transformed_loss': np.mean(transformed_loss)}, step=epoch)
         print(f"Epoch {epoch}, train loss {train_loss:.4f}")
 
         ### VALIDATION ###
         K.backend.set_learning_phase(0)
         valid_loss = []
-        transformed_loss = []
+        valid_transformed_loss = []
         for batch_count, (features, responses, instances) in enumerate(valid_data):
             shift, scale = get_response_normalization(instances,valid_benchmark)
             responses = (responses - shift) / scale
@@ -194,10 +191,10 @@ if __name__ == "__main__":
             predictions = model(features)
             loss = tf.reduce_mean(tf.square(predictions - responses))
             valid_loss.append(loss)
-            transformed_loss.append(tf.reduce_mean(tf.square(scale*(predictions - responses))).numpy())
+            valid_transformed_loss.append(tf.reduce_mean(tf.square(scale*(predictions - responses))).numpy())
         valid_loss = tf.reduce_mean(valid_loss)
-        comet.log_metric('valid_loss', valid_loss.numpy(), step=epoch)
-        comet.log_metric('valid_transformed_loss', np.mean(transformed_loss), step=epoch)
+        wandb.log({'valid_loss': valid_loss.numpy(), 
+                   'valid_transformed_loss': np.mean(valid_transformed_loss)}, step=epoch)
         print(f"Epoch {epoch}, validation loss {valid_loss:.4f}")
 
         if valid_loss < best_valid_loss:
