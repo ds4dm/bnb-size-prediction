@@ -100,6 +100,7 @@ if __name__ == "__main__":
     """      ~~~~~   EXPERIMENT SETUP   ~~~~~     """
     """      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     """
 
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     if args.gpu == -1:
         print(f"Using CPU")
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
@@ -107,7 +108,11 @@ if __name__ == "__main__":
         print(f"Using GPU {args.gpu}")
         os.environ['CUDA_VISIBLE_DEVICES'] = f'{args.gpu}'
 
-    config = load_config("config.json")
+    if os.path.isfile("config.json"):
+        config = load_config("config.json")
+    else:
+        config = load_config("config.default.json")
+    config['hostname'] = socket.gethostname()
     wandb.init(project="bnb-size-prediction", config=config)
 
     tfconfig = tf.ConfigProto()
