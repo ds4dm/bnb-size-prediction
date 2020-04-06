@@ -26,41 +26,40 @@ logger = logging.getLogger("rl2branch." + __name__)
 
 
 class AsyncAgent(threading.Thread):
-    def __init__(self,policy,inQueue,outQueue,reward_type,greedy=False,record_states=False):
+    def __init__(self,inQueue,outQueue,reward_type,greedy=False,record_tseries=False):
         super().__init__()
         self.scip = Scip(name=f"{self.name}'s SCIP",reward_type=reward_type)
-        self.policy = policy
         self.actor = None
         self.inQueue = inQueue
         self.outQueue = outQueue
         self.greedy_mode = greedy
-        self.record_states = record_states
+        self.record_tseries = record_tseries
 
+        self.finished = False
         self.instance = None
         self.instance_finished = threading.Event()
         self.stats = None
         self.must_stop = False
         self.random = np.random.RandomState(0)
-        self.killed = False
         self.scip.start()
 
     def pass_actor_ref(self,actor):
         self.actor = actor
 
     def run(self):
-        print("Started agent")
         try:
-            while ( not self.inQueue.empty() )  and  ( not self.killed ):
-                instance, seed = self.inQueue.get(block=False)
+            logger.info("Started agent")
+            while not self.inQueue.empty():
+                instance, seed = self.inQueue.get()
                 name = str(instance).split('/')[-1]
-                print(f"Solving {name}")
+                logger.info(f"Solving {name} with seed {seed}")
                 self._load_instance(instance, seed)
                 while not self.instance_finished.is_set():
                     self.step()
-                print(f"Finished processing {name}")
                 self.outQueue.put(self.stats)
         finally:
-            self.outQueue.put(None)
+            self.finished = True
+            logger.info("Finished")
             self.scip.tell({'type': ScipMessage.KILL})
             self.scip.schedule_instance((None,None))
             self.scip.flush_message_pipe()
@@ -76,7 +75,6 @@ class AsyncAgent(threading.Thread):
             The memory to save transitions to.
         """
         message = self.scip.listen()
-        #print(self.scip.is_alive())
         if message is not None:
             if message['type'] == ScipMessage.ACTION_NEEDED:
                 constraint_features, edge_features, variable_features = message['state']
@@ -91,7 +89,7 @@ class AsyncAgent(threading.Thread):
                 state = constraint_features, edge_indices, edge_features, variable_features, n_cons, n_vars
                 candidate_mask = tf.convert_to_tensor(candidate_mask, tf.float32)
 
-                log_policy = self.actor(state,tf.convert_to_tensor(True))
+                log_policy = self.actor(state,tf.convert_to_tensor(False))
                 log_policy = log_policy - tf.stop_gradient(tf.reduce_max(log_policy, axis=-1, keepdims=True))
                 policy = tf.exp(log_policy) * candidate_mask
                 policy = policy / tf.expand_dims(tf.reduce_sum(policy, axis=-1), axis=-1)
@@ -103,24 +101,15 @@ class AsyncAgent(threading.Thread):
                     action = tf.convert_to_tensor(self.random.choice(policy.shape[-1], 1, p=policy[0, :].numpy()))
                     logprob_action = tf.log(policy[:, action[0]] + 1e-5)
 
-                idxes = np.nonzero(candidate_mask)[0]
-                #print(f"Action {action[0].numpy()} by {self.policy}")
                 self.scip.tell({'type': ScipMessage.ACTION,
                                 'action': action[0].numpy()})
-                # self.scip.tell({'type': ScipMessage.ACTION,
-                #                 'action': idxes[0]})
 
             elif message['type'] == ScipMessage.INSTANCE_FINISHED:
-                self.stats['nb_nodes_final'] = message['nb_nodes']
-                self.stats['nb_lp_iterations_final'] = message['nb_lp_iterations']
-                self.stats['solving_time_final'] = message['solving_time']
-                self.stats['gap'] = message['gap']
-                self.stats['status'] = message['status']
-                if self.record_states:
-                    self.stats['c_states'] = message['time_series_data']['c_states']
-                    self.stats['nb_nodes'] = message['time_series_data']['nb_nodes']
-                    self.stats['nb_lp_iterations'] = message['time_series_data']['nb_lp_iterations']
-                    self.stats['rewards'] = message['time_series_data']['rewards']
+                self.stats['nb_nodes'] = message['nb_nodes']
+                self.stats['nb_lp_iterations'] = message['nb_lp_iterations']
+                self.stats['solving_time'] = message['solving_time']
+                if self.record_tseries:
+                    self.stats['time_series'] = message['tseries']
                 self.instance_finished.set()
                 logger.info("Instance finished")
 
@@ -130,10 +119,7 @@ class AsyncAgent(threading.Thread):
             else:
                 raise ValueError(f"Unrecognized message type {message['type']}")
 
-        else:
-            print(f"Agent: {self.policy} | SCIP: {self.scip.is_alive()}")
-            time.sleep(1)
-            assert 0
+
         if self.must_stop:
             logger.info("Received termination signal")
             self.scip.tell({'type': ScipMessage.STOP})
@@ -152,20 +138,12 @@ class AsyncAgent(threading.Thread):
         self.scip.schedule_instance((instance,seed))
         self.instance_finished.clear()
         self.instance = instance
-        self.stats = {'policy':self.policy, 'instance': instance,
-                      'seed': seed, 'nb_nodes_final' : None,
-                      'nb_lp_iterations_final' : None, 'solving_time_final' : None,
-                      'gap': None, 'status': None,
-                      'c_states': None, 'nb_nodes' : None,
-                      'nb_lp_iterations' : None, 'rewards' : None}
+        self.stats = {'instance': instance, 'seed': seed,
+                      'nb_nodes' : None, 'nb_lp_iterations' : None,
+                      'solving_time' : None, 'time_series': None}
 
     def stop(self):
         """
         Stop the solving process of the current instance.
         """
         self.must_stop = True
-
-    def kill(self):
-        self.must_stop = True
-        self.killed = True
-        self.stats = None

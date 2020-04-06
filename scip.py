@@ -31,8 +31,8 @@ class Scip(mp.Process, pyscipopt.Branchrule):
         self._message_to_scip, self._message_from_parent = mp.Pipe(duplex=False)
         self._message_to_parent, self._message_from_scip = mp.Pipe(duplex=False)
         self._reward_type = reward_type
-        self.reward = None
-        self.data_recorder = None
+        self._reward = None
+        self._stats_recorder = None
         self.process_must_end = False
 
     def start(self):
@@ -52,26 +52,25 @@ class Scip(mp.Process, pyscipopt.Branchrule):
                 model.setIntParam('display/verblevel', 0)
                 model.readProblem(instance_file)
                 scip_utilities.init_scip_params(model, seed=seed)
+                self._stats_recorder = SolvingStatsRecorder()
+                model.includeEventhdlr(self._stats_recorder, "SolvingStatsRecorder", "")
                 model.includeBranchrule(self, name='ReinforcementBrancher', desc='Reinforcement brancher',
                                         priority=1000000, maxdepth=-1, maxbounddist=1.0)
-                self.data_recorder = {'nb_nodes': [], 'nb_lp_iterations': [], 'c_states': [], 'rewards': []}
-                self.reward = rewards.getRewardFun(self._reward_type,model)
+                self._reward = rewards.getRewardFun(self._reward_type,model)
                 with sys_pipes():
                     model.optimize()
 
                 if model.getStatus() == "userinterrupt":
                     break
                 else:
-                    reward = self.reward()
-                    self.data_recorder['rewards'].append(reward)
+                    tseries = {'solving_stats': self._stats_recorder.solving_stats,
+                               'nb_nodes': self._stats_recorder.nb_nodes,
+                               'nb_lp_iterations': self._stats_recorder.nb_lp_iterations}
                     self.tell({'type': ScipMessage.INSTANCE_FINISHED,
-                               'reward': reward,
+                               'tseries': tseries,
                                'nb_nodes': model.getNNodes(),
                                'solving_time': model.getSolvingTime(),
-                               'nb_lp_iterations': model.getNLPIterations(),
-                               'gap': model.getGap(),
-                               'status': model.getStatus(),
-                               'time_series_data':self.data_recorder})
+                               'nb_lp_iterations': model.getNLPIterations())
                 model.freeProb()
 
         except Exception as exception:
@@ -99,9 +98,9 @@ class Scip(mp.Process, pyscipopt.Branchrule):
         try:
             state = scip_utilities.extract_state(self.model, self.state_buffer)
             candidate_mask = self.compute_candidate_mask()
-            previous_reward = self.reward()
-            self.fetch_stats(previous_reward)
-            solving_stats = scip_utilities.pack_solving_stats(self.data_recorder['c_states'])
+            previous_reward = self._reward()
+            self._stats_recorder.fetch_stats()
+            solving_stats = scip_utilities.pack_solving_stats(self._stats_recorder.solving_stats)
 
             self.tell({'type': ScipMessage.ACTION_NEEDED,
                         'previous_reward' : previous_reward,
@@ -133,6 +132,9 @@ class Scip(mp.Process, pyscipopt.Branchrule):
                        'exception': ScipException(exception=exception, process_name=self.name)})
             self.model.interruptSolve()
             return {"result": pyscipopt.SCIP_RESULT.DIDNOTRUN}
+
+    def branchexitsol(self):
+        self._reward.cleanup()
 
     def tell(self, message):
         """
@@ -219,12 +221,6 @@ class Scip(mp.Process, pyscipopt.Branchrule):
 
         return candidate_mask
 
-    def fetch_stats(self,previous_reward):
-        self.data_recorder['nb_nodes'].append(self.model.getNNodes())
-        self.data_recorder['nb_lp_iterations'].append(self.model.getNLPIterations())
-        self.data_recorder['c_states'].append(self.model.getSolvingStats())
-        if previous_reward is not None:
-            self.data_recorder['rewards'].append(previous_reward)
 
 class ScipMessage(enum.Enum):
     ACTION = enum.auto()
@@ -259,3 +255,31 @@ class ScipException(Exception):
 
     def __str__(self):
         return f"(in {self.process_name} process)\n\n{self.formatted}"
+
+class SolvingStatsRecorder(pyscipopt.Eventhdlr):
+    """
+    A SCIP event handler that records solving stats
+    """
+    def __init__(self):
+        self.solving_stats = []
+        self.nb_nodes = []
+        self.nb_lp_iterations = []
+
+    def eventinit(self):
+        self.model.catchEvent(pyscipopt.SCIP_EVENTTYPE.NODEFEASIBLE, self)
+        self.model.catchEvent(pyscipopt.SCIP_EVENTTYPE.NODEINFEASIBLE, self)
+        self.model.catchEvent(pyscipopt.SCIP_EVENTTYPE.NODEBRANCHED, self)
+
+    def eventexit(self):
+        self.model.dropEvent(pyscipopt.SCIP_EVENTTYPE.NODEFEASIBLE, self)
+        self.model.dropEvent(pyscipopt.SCIP_EVENTTYPE.NODEINFEASIBLE, self)
+        self.model.dropEvent(pyscipopt.SCIP_EVENTTYPE.NODEBRANCHED, self)
+
+    def eventexec(self, event):
+        self.fetch_stats()
+
+    def fetch_stats(self):
+        if len(self.solving_stats) < self.model.getNNodes():
+            self.solving_stats.append(self.model.getSolvingStats())
+            self.nb_nodes.append(self.model.getNNodes())
+            self.nb_lp_iterations.append(self.model.getNLPIterations())

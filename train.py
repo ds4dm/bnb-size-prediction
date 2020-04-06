@@ -16,7 +16,7 @@ from utilities import load_config
 def load_instance(filename):
     with open(filename, 'rb') as file:
         sample = pickle.load(file)
-    features = tf.convert_to_tensor(sample['c_states'], dtype=tf.float32)
+    features = tf.convert_to_tensor(sample['critic_states'], dtype=tf.float32)
     response = tf.convert_to_tensor(sample['nb_nodes_left'], dtype=tf.float32)
     instance = str(sample['instance_path'])
     return features, response, instance
@@ -67,13 +67,12 @@ def learning_rate(episode):
 
 def get_response_normalization(instances,benchmark):
     shift, scale = [], []
-    norm_key = 'nb_nodes_final'
     for instance in instances:
         instance = instance.numpy().decode('utf-8')
-        shift.append(np.mean(benchmark[instance][norm_key]))
-        scale.append(np.mean(benchmark[instance][norm_key])/np.sqrt(12) + np.std(benchmark[instance][norm_key]))
+        shift.append(np.mean(benchmark[instance]['nb_nodes']))
+        scale.append(np.mean(benchmark[instance]['nb_nodes'])/np.sqrt(12) + np.std(benchmark[instance]['nb_nodes']))
         #shift.append(0.0)
-        #scale.append(np.mean(benchmark[instance][norm_key]))
+        #scale.append(np.mean(benchmark[instance]['nb_nodes']))
     shift = tf.cast(tf.stack(shift, axis=0), tf.float32)
     scale = tf.cast(tf.stack(scale, axis=0), tf.float32)
     return shift, scale
@@ -126,7 +125,7 @@ if __name__ == "__main__":
     """      ~~~~~      LOAD DATA       ~~~~~     """
     """      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     """
 
-    data_folder = Path("data/bnb_size_prediction/")/args.problem
+    data_folder = Path("data/samples_lara/bnb_size_prediction/")/args.problem
     train_folder = data_folder/"train"
     valid_folder  = data_folder/"valid"
     output_folder = Path("results")/args.problem
@@ -176,12 +175,11 @@ if __name__ == "__main__":
                 loss = tf.reduce_mean(tf.square(predictions - responses))
             grads = tape.gradient(target=loss, sources=model.variables)
             optimizer.apply_gradients(zip(grads, model.variables))
-            train_loss.append(loss)
+            train_loss.append(loss.numpy())
             transformed_loss.append(tf.reduce_mean(tf.square(scale*(predictions - responses))).numpy())
             if count % 500 == 0:
                 print(f"Epoch {epoch}, batch {count}, loss {loss:.4f}")
-        train_loss = tf.reduce_mean(train_loss)
-        wandb.log({'train_loss': train_loss.numpy(), 
+        wandb.log({'train_loss': np.mean(train_loss),
                    'train_transformed_loss': np.mean(transformed_loss)}, step=epoch)
         print(f"Epoch {epoch}, train loss {train_loss:.4f}")
 
@@ -198,7 +196,7 @@ if __name__ == "__main__":
             valid_loss.append(loss)
             valid_transformed_loss.append(tf.reduce_mean(tf.square(scale*(predictions - responses))).numpy())
         valid_loss = tf.reduce_mean(valid_loss)
-        wandb.log({'valid_loss': valid_loss.numpy(), 
+        wandb.log({'valid_loss': valid_loss.numpy(),
                    'valid_transformed_loss': np.mean(valid_transformed_loss)}, step=epoch)
         print(f"Epoch {epoch}, validation loss {valid_loss:.4f}")
 

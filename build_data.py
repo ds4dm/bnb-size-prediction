@@ -14,8 +14,8 @@ from actor.model import GCNPolicy as Actor
 
 # Hyperparameters
 SEED = 0
-GAMMA = 0.99
-REWARD_TYPE = 'gap'
+GAMMA = 1.0 # Do not change this!
+REWARD_TYPE = 'nbnodes'
 NB_SAMPLES = {'train':100000, 'valid':20000}
 
 
@@ -26,7 +26,7 @@ def tf_setup(gpu, seed):
     tf.enable_eager_execution(tfconfig)
     tf.set_random_seed(seed)
 
-    
+
 def calculate_return(rewards, gamma):
     ret = 0.0
     for i,r in enumerate(rewards):
@@ -37,9 +37,9 @@ def calculate_return(rewards, gamma):
 def update_benchmark(benchmark, result):
     instance = result['instance']
     if instance not in benchmark:
-            benchmark[instance] = {'nb_nodes_final': [], 'nb_lp_iterations_final': []}
-    benchmark[instance]['nb_nodes_final'].append(result['nb_nodes_final'])
-    benchmark[instance]['nb_lp_iterations_final'].append(result['nb_lp_iterations_final'])
+            benchmark[instance] = {'nb_nodes': [], 'nb_lp_iterations': []}
+    benchmark[instance]['nb_nodes'].append(result['nb_nodes'])
+    benchmark[instance]['nb_lp_iterations'].append(result['nb_lp_iterations'])
     with (output_path/"benchmark.pkl").open("wb") as file:
         pickle.dump(benchmark, file)
     return benchmark
@@ -86,7 +86,7 @@ if __name__ == "__main__":
         assert 0
 
     parameters_path = f"actor/{args.problem}/params.pkl"
-    output_path = Path("data/bnb_size_prediction")/args.problem/args.split
+    output_path = Path("data/samples_lara/bnb_size_prediction")/args.problem/args.split
     (output_path).mkdir(parents=True, exist_ok=True)
 
     ############################################################
@@ -99,12 +99,11 @@ if __name__ == "__main__":
         instance_queue.put(task)
 
     # Agents
-    agents = [Agent(policy=str(j),
-                    inQueue=instance_queue,
+    agents = [Agent(inQueue=instance_queue,
                     outQueue=results_queue,
                     reward_type=REWARD_TYPE,
                     greedy=False,
-                    record_states=True) for j in range(args.nb_agents)]
+                    record_tseries=True) for j in range(args.nb_agents)]
     tf_setup(args.gpu, SEED)
     actor = Actor()
     actor.restore_state(parameters_path)
@@ -120,29 +119,25 @@ if __name__ == "__main__":
         while sample_count < nb_samples:
             print("Sample: ",sample_count)
             result = results_queue.get(block=True)
-            if result is None:
-                break
-            c_states = result['c_states']
-            nb_subsamples = np.ceil(0.05 * len(c_states)).astype(int)
-            subsample_ends = np.random.choice(np.arange(1, len(c_states)+1), nb_subsamples, replace=False).tolist()
+            critic_state = result['time_series']['solving_stats']
+            nb_subsamples = np.ceil(0.05 * len(critic_state)).astype(int)
+            subsample_ends = np.random.choice(np.arange(1, len(critic_state)+1), nb_subsamples, replace=False).tolist()
             for subsample_end in subsample_ends:
-                subsample_stats = scip_utilities.pack_solving_stats(c_states[:subsample_end])
-                return_left = calculate_return(result['rewards'][subsample_end-1:], GAMMA)
-                nb_nodes_left = result['nb_nodes_final'] - result['nb_nodes'][subsample_end-1]
-                nb_lp_iterations_left = result['nb_lp_iterations_final'] - result['nb_lp_iterations'][subsample_end-1]
+                subsample_states = scip_utilities.pack_solving_stats(critic_state[:subsample_end])
+                nb_nodes_left = result['nb_nodes'] - result['time_series']['nb_nodes'][subsample_end-1]
+                nb_lp_iterations_left = result['nb_lp_iterations'] - result['time_series']['nb_lp_iterations'][subsample_end-1]
                 if sample_count < nb_samples:
                     sample_count += 1
                     sample_path = output_path/f"sample_{sample_count-1}.pkl"
                     with sample_path.open('wb') as f:
-                        pickle.dump({'c_states': subsample_stats,
+                        pickle.dump({'critic_state': subsample_states,
                                      'nb_nodes_left': nb_nodes_left,
                                      'nb_lp_iterations_left': nb_lp_iterations_left,
-                                     'return_left': return_left,
                                      'instance_path': str(result['instance']) }, f)
             if nb_subsamples > 0:
                 benchmark = update_benchmark(benchmark,{'instance':str(result['instance']),
-                                                    'nb_nodes_final': result['nb_nodes_final'],
-                                                    'nb_lp_iterations_final':result['nb_lp_iterations_final']})
+                                                    'nb_nodes_final': result['nb_nodes'],
+                                                    'nb_lp_iterations_final':result['nb_lp_iterations']})
 
     finally:
         for agent in agents: agent.kill()
