@@ -1,12 +1,16 @@
 import os
 import queue
+import time
+import logging
 import numpy as np
 from pathlib import Path
 import tensorflow as tf
 import tensorflow.contrib.eager as tfe
 import scip_utilities
+import utilities
 import argparse
 import pickle
+from datetime import datetime
 
 from agent import AsyncAgent as Agent
 from actor.model import GCNPolicy as Actor
@@ -89,6 +93,17 @@ if __name__ == "__main__":
     output_path = Path("data/samples_lara/bnb_size_prediction")/args.problem/args.split
     (output_path).mkdir(parents=True, exist_ok=True)
 
+    # Logging
+    current_date = datetime.now().strftime('%Y-%m-%d')
+    current_time = datetime.now().strftime('%H:%M:%S')
+    logging_header = (
+    f"rl2branch log\n"
+    f"-------------\n"
+    f"Training started on {current_date} at {current_time}\n"
+    )
+    utilities.configure_logging(output_file="run.log", header=logging_header)
+    logger = logging.getLogger("rl2branch")
+
     ############################################################
 
     # Instances
@@ -102,6 +117,7 @@ if __name__ == "__main__":
     agents = [Agent(inQueue=instance_queue,
                     outQueue=results_queue,
                     reward_type=REWARD_TYPE,
+                    logger = logger,
                     greedy=False,
                     record_tseries=True) for j in range(args.nb_agents)]
     tf_setup(args.gpu, SEED)
@@ -117,6 +133,8 @@ if __name__ == "__main__":
     try:
         sample_count = 0
         while sample_count < nb_samples:
+            live_agents = [agent for agent in agents if agent.finished == False]
+            if len(live_agents) == 0: break
             print("Sample: ",sample_count)
             result = results_queue.get(block=True)
             critic_state = result['time_series']['solving_stats']
@@ -136,9 +154,12 @@ if __name__ == "__main__":
                                      'instance_path': str(result['instance']) }, f)
             if nb_subsamples > 0:
                 benchmark = update_benchmark(benchmark,{'instance':str(result['instance']),
-                                                    'nb_nodes_final': result['nb_nodes'],
-                                                    'nb_lp_iterations_final':result['nb_lp_iterations']})
+                                                    'nb_nodes': result['nb_nodes'],
+                                                    'nb_lp_iterations':result['nb_lp_iterations']})
 
     finally:
-        for agent in agents: agent.kill()
+        for agent in agents:
+            agent.finished = True
+            agent.stop()
+        time.sleep(3)
         print("All agents were killed")

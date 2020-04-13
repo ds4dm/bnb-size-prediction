@@ -22,11 +22,10 @@ from actor.model import GCNPolicy
 from scipy.special import softmax
 from pathlib import Path
 
-logger = logging.getLogger("rl2branch." + __name__)
 
 
 class AsyncAgent(threading.Thread):
-    def __init__(self,inQueue,outQueue,reward_type,greedy=False,record_tseries=False):
+    def __init__(self,inQueue,outQueue,reward_type,logger=None,greedy=False,record_tseries=False):
         super().__init__()
         self.scip = Scip(name=f"{self.name}'s SCIP",reward_type=reward_type)
         self.actor = None
@@ -35,7 +34,8 @@ class AsyncAgent(threading.Thread):
         self.greedy_mode = greedy
         self.record_tseries = record_tseries
 
-        self.finished = False
+        self.logger = logger if logger is not None else logging.getLogger("rl2branch.")
+        self.finished = False 
         self.instance = None
         self.instance_finished = threading.Event()
         self.stats = None
@@ -48,18 +48,18 @@ class AsyncAgent(threading.Thread):
 
     def run(self):
         try:
-            logger.info("Started agent")
-            while not self.inQueue.empty():
+            self.logger.info("Started agent")
+            while (not self.inQueue.empty()) and (not self.finished):
                 instance, seed = self.inQueue.get()
                 name = str(instance).split('/')[-1]
-                logger.info(f"Solving {name} with seed {seed}")
+                self.logger.info(f"Solving {name} with seed {seed}")
                 self._load_instance(instance, seed)
                 while not self.instance_finished.is_set():
                     self.step()
                 self.outQueue.put(self.stats)
         finally:
             self.finished = True
-            logger.info("Finished")
+            self.logger.info("Finished")
             self.scip.tell({'type': ScipMessage.KILL})
             self.scip.schedule_instance((None,None))
             self.scip.flush_message_pipe()
@@ -111,7 +111,7 @@ class AsyncAgent(threading.Thread):
                 if self.record_tseries:
                     self.stats['time_series'] = message['tseries']
                 self.instance_finished.set()
-                logger.info("Instance finished")
+                self.logger.info("Instance finished")
 
             elif message['type'] == ScipMessage.EXCEPTION_THROWN:
                 raise message['exception']
@@ -121,7 +121,7 @@ class AsyncAgent(threading.Thread):
 
 
         if self.must_stop:
-            logger.info("Received termination signal")
+            self.logger.info("Received termination signal")
             self.scip.tell({'type': ScipMessage.STOP})
             self.instance_finished.set()
             self.must_stop = False

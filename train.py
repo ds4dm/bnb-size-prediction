@@ -1,7 +1,7 @@
 import os
 import gzip
 import wandb
-import comet_ml
+import socket
 import argparse
 import pickle
 import numpy as np
@@ -16,7 +16,7 @@ from utilities import load_config
 def load_instance(filename):
     with open(filename, 'rb') as file:
         sample = pickle.load(file)
-    features = tf.convert_to_tensor(sample['critic_states'], dtype=tf.float32)
+    features = tf.convert_to_tensor(sample['critic_state'], dtype=tf.float32)
     response = tf.convert_to_tensor(sample['nb_nodes_left'], dtype=tf.float32)
     instance = str(sample['instance_path'])
     return features, response, instance
@@ -181,7 +181,7 @@ if __name__ == "__main__":
                 print(f"Epoch {epoch}, batch {count}, loss {loss:.4f}")
         wandb.log({'train_loss': np.mean(train_loss),
                    'train_transformed_loss': np.mean(transformed_loss)}, step=epoch)
-        print(f"Epoch {epoch}, train loss {train_loss:.4f}")
+        print(f"Epoch {epoch}, train loss {np.mean(train_loss):.4f}")
 
         ### VALIDATION ###
         K.backend.set_learning_phase(0)

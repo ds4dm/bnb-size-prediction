@@ -70,7 +70,7 @@ class Scip(mp.Process, pyscipopt.Branchrule):
                                'tseries': tseries,
                                'nb_nodes': model.getNNodes(),
                                'solving_time': model.getSolvingTime(),
-                               'nb_lp_iterations': model.getNLPIterations())
+                               'nb_lp_iterations': model.getNLPIterations()})
                 model.freeProb()
 
         except Exception as exception:
