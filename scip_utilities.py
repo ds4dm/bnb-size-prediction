@@ -1,14 +1,8 @@
 """
 Miscellaneous SCIP-related utilities.
 """
-import datetime
 import numpy as np
 import scipy.sparse as sp
-import functools
-import pyscipopt as scip
-import pickle
-import gzip
-import multiprocessing as mp
 
 
 def init_scip_params(model, seed, heuristics=True, presolving=True, separating=True, conflict=True):
@@ -43,6 +37,7 @@ def init_scip_params(model, seed, heuristics=True, presolving=True, separating=T
     if not heuristics:
         model.setHeuristics(scip.SCIP_PARAMSETTING.OFF)
 
+
 def extract_state(model, buffer=None):
     """
     Compute a bipartite graph representation of the solver. In this
@@ -50,6 +45,7 @@ def extract_state(model, buffer=None):
     left- and right-hand side nodes, and an edge links two nodes iff the
     variable is involved in the constraint. Both the nodes and edges carry
     features.
+
     Parameters
     ----------
     model : pyscipopt.scip.Model
@@ -211,6 +207,7 @@ def extract_state(model, buffer=None):
     return constraint_features, edge_features, variable_features
 
 
+
 SOLVING_STATS_SEQUENCE_LENGTH = 50
 SOLVING_STATS_FEATURES = [
 'opennodes_90quant_norm',
@@ -255,35 +252,36 @@ SOLVING_STATS_FEATURES = [
 'nrootstrongbranchlpiterations',
 #
 'solvingtime',
- ]
+]
 
 
 def pack_solving_stats(solving_stats):
     solving_stats = {name: np.asarray([s[name]
-                           for s in solving_stats[-SOLVING_STATS_SEQUENCE_LENGTH:]])
+                           for s in solving_stats[-SOLVING_STATS_SEQUENCE_LENGTH:]]) 
                            for name in solving_stats[0].keys()}
-    solving_stats = normalize_solving_stats(solving_stats,
+    solving_stats = normalize_solving_stats(solving_stats, 
                               length=SOLVING_STATS_SEQUENCE_LENGTH)
-    solving_stats = np.stack([solving_stats[feature_name]
+    solving_stats = np.stack([solving_stats[feature_name] 
                               for feature_name in SOLVING_STATS_FEATURES], axis=-1)
     return solving_stats
 
 
 def normalize_solving_stats(solving_stats, length=SOLVING_STATS_SEQUENCE_LENGTH):
     solving_stats = {name: np.pad(vals[-length:], (max(length-len(vals), 0), 0), mode='edge') for name, vals in solving_stats.items()}
-
+    
     nnodes_done = solving_stats['ninternalnodes'] + solving_stats['nfeasibleleaves'] + solving_stats['ninfeasibleleaves'] + solving_stats['nobjlimleaves']
     solving_stats['nnodes_done'] = nnodes_done
     lp_obj_norm = [(v - lb) / ((ub - lb) if ub > lb else 1) for v, lb, ub in zip(solving_stats['lp_obj'], solving_stats['dualbound'], solving_stats['primalbound'])]
     solving_stats['lp_obj_norm'] = lp_obj_norm
     lp_obj_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats['lp_obj']]
     solving_stats['lp_obj_normfirst'] = lp_obj_normfirst
+    solving_stats['avgdualbound'] /= (np.abs(solving_stats['avglowerbound']) + solving_stats['dualbound'])
     avgdualbound_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats['avgdualbound']]
     solving_stats['avgdualbound_normfirst'] = avgdualbound_normfirst
     avgpseudocostscore_norm = [(v - lb) / ((ub - lb) if ub > lb else 1) for v, lb, ub in zip(solving_stats['avgpseudocostscore'], solving_stats['dualbound'], solving_stats['primalbound'])]
     solving_stats['avgpseudocostscore_norm'] = avgpseudocostscore_norm
     avgpseudocostscore_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats['avgpseudocostscore']]
-    solving_stats['avgpseudocostscore_normfirst'] = avgpseudocostscore_normfirst
+    solving_stats['avgpseudocostscore_normfirst'] = avgpseudocostscore_normfirst              
     for k in (10, 25, 50, 75, 90):
         quint = f'opennodes_{k}quant'
         quint_norm = f'opennodes_{k}quant_norm'
@@ -293,3 +291,5 @@ def normalize_solving_stats(solving_stats, length=SOLVING_STATS_SEQUENCE_LENGTH)
         opennodes_quint_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats[quint]]
         solving_stats[quint_normfirst] = opennodes_quint_normfirst
     return solving_stats
+
+
