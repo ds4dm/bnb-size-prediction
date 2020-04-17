@@ -68,18 +68,17 @@ if __name__ == "__main__":
         default=8,
     )
     args = parser.parse_args()
-
-    files = {}
-        if args.problem == 'setcover':
-            data_folder = Path('data/instances/setcover')
-            train_folder =data_folder/"train_500r_1000c_0.05d"
-            valid_folder = data_folder/"valid_500r_1000c_0.05d"
-        elif args.problem == 'cauctions':
-            data_folder = Path('data/instances/cauctions')
-            train_folder =data_folder/"train_100_500"
-            valid_folder = data_folder/"valid_100_500"
-        else:
-            assert 0
+	
+    if args.problem == 'setcover':
+        data_folder = Path('data/instances/setcover')
+        train_folder =data_folder/"train_500r_1000c_0.05d"
+        valid_folder = data_folder/"valid_500r_1000c_0.05d"
+    elif args.problem == 'cauctions':
+        data_folder = Path('data/instances/cauctions')
+        train_folder =data_folder/"train_100_500"
+        valid_folder = data_folder/"valid_100_500"
+    else:
+        assert 0
 
     train_instances = {path: get_instance_id(path) for path in (train_folder).glob("*.lp")}
     train_instances = sorted(train_instances, key=train_instances.__getitem__)
@@ -87,7 +86,7 @@ if __name__ == "__main__":
     valid_instances = sorted(valid_instances, key=valid_instances.__getitem__)
 
     parameters_path = f"actor/{args.problem}/params.pkl"
-    NB_SAMPLERS = args.a
+    NB_SAMPLERS = args.nb_agents
 
 
     # Train
