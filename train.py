@@ -1,7 +1,5 @@
 import os
 import gzip
-import wandb
-import comet_ml
 import argparse
 import pickle
 import numpy as np
@@ -10,15 +8,19 @@ import tensorflow.keras as K
 import tensorflow.contrib.eager as tfe
 from pathlib import Path
 from model import Model
-from utilities import load_config
+
+
+lr_start = 1e-5
+lr_end = 1e-5
+max_epochs = 50
 
 
 def load_instance(filename):
-    with open(filename, 'rb') as file:
+    with gzip.open(filename, 'rb') as file:
         sample = pickle.load(file)
-    features = tf.convert_to_tensor(sample['c_states'], dtype=tf.float32)
+    features = tf.convert_to_tensor(sample['solving_stats'], dtype=tf.float32)
     response = tf.convert_to_tensor(sample['nb_nodes_left'], dtype=tf.float32)
-    instance = str(sample['instance_path'])
+    instance = sample['instance_path']
     return features, response, instance
 
 
@@ -60,23 +62,7 @@ def get_feature_stats(data, folder):
 
 
 def learning_rate(episode):
-    lr_start = config['lr_start']
-    lr_end = config['lr_end']
     return (lr_start-lr_end) / np.e ** episode + lr_end
-
-
-def get_response_normalization(instances,benchmark):
-    shift, scale = [], []
-    norm_key = 'nb_nodes_final'
-    for instance in instances:
-        instance = instance.numpy().decode('utf-8')
-        shift.append(np.mean(benchmark[instance][norm_key]))
-        scale.append(np.mean(benchmark[instance][norm_key])/np.sqrt(12) + np.std(benchmark[instance][norm_key]))
-        #shift.append(0.0)
-        #scale.append(np.mean(benchmark[instance][norm_key]))
-    shift = tf.cast(tf.stack(shift, axis=0), tf.float32)
-    scale = tf.cast(tf.stack(scale, axis=0), tf.float32)
-    return shift, scale
 
 
 if __name__ == "__main__":
@@ -95,12 +81,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-
-    """      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     """
-    """      ~~~~~   EXPERIMENT SETUP   ~~~~~     """
-    """      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     """
-
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     if args.gpu == -1:
         print(f"Using CPU")
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
@@ -108,28 +88,16 @@ if __name__ == "__main__":
         print(f"Using GPU {args.gpu}")
         os.environ['CUDA_VISIBLE_DEVICES'] = f'{args.gpu}'
 
-    if os.path.isfile("config.json"):
-        config = load_config("config.json")
-    else:
-        config = load_config("config.default.json")
-    config['hostname'] = socket.gethostname()
-    wandb.init(project="bnb-size-prediction", config=config)
-
     tfconfig = tf.ConfigProto()
     tfconfig.gpu_options.allow_growth = True
     tf.enable_eager_execution(tfconfig)
     tf.set_random_seed(seed=0)
     rng = np.random.RandomState(0)
 
-
-    """      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     """
-    """      ~~~~~      LOAD DATA       ~~~~~     """
-    """      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     """
-
-    data_folder = Path("data/bnb_size_prediction/")/args.problem
+    data_folder = Path('data/bnb_size_prediction')/args.problem
     train_folder = data_folder/"train"
     valid_folder  = data_folder/"valid"
-    output_folder = Path("results")/args.problem
+    output_folder = Path('results')/args.problem
     output_folder.mkdir(parents=True, exist_ok=True)
 
     train_filenames = [str(filename) for filename in train_folder.glob('sample*.pkl')]
@@ -147,28 +115,29 @@ if __name__ == "__main__":
         valid_benchmark = pickle.load(file)
 
     feature_means, feature_stds = get_feature_stats(train_data, train_folder)
+
     model = Model(feature_means, feature_stds)
-
-
-    """      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     """
-    """      ~~~~~       TRAINING       ~~~~~     """
-    """      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     """
-
     optimizer = tf.train.AdamOptimizer(lambda: lr)
+
     best_valid_loss = np.inf
-    for epoch in range(config['max_epochs']):
-        ### TRAIN ###
-        K.backend.set_learning_phase(1)
+    for epoch in range(max_epochs):
+        K.backend.set_learning_phase(1) # Set train
+
         epoch_train_filenames = rng.choice(train_filenames, len(train_filenames), replace=False)
         train_data = tf.data.Dataset.from_tensor_slices(epoch_train_filenames).batch(32)
         train_data = train_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
         train_data = train_data.prefetch(1)
 
         train_loss = []
-        transformed_loss = []
         for count, (features, responses, instances) in enumerate(train_data):
-            shift, scale = get_response_normalization(instances,train_benchmark)
-            responses = (responses - shift) / scale
+            response_centers, response_scales = [], []
+            for instance in instances:
+                instance = instance.numpy().decode('utf-8')
+                response_centers.append(np.mean(train_benchmark[instance]['nb_nodes']))
+                response_scales.append(np.mean(train_benchmark[instance]['nb_nodes'])/np.sqrt(12) + np.std(train_benchmark[instance]['nb_nodes']))
+            response_centers = tf.cast(tf.stack(response_centers, axis=0), tf.float32)
+            response_scales = tf.cast(tf.stack(response_scales, axis=0), tf.float32)
+            responses = (responses - response_centers) / response_scales
 
             lr = learning_rate(epoch)
             with tf.GradientTape() as tape:
@@ -177,29 +146,27 @@ if __name__ == "__main__":
             grads = tape.gradient(target=loss, sources=model.variables)
             optimizer.apply_gradients(zip(grads, model.variables))
             train_loss.append(loss)
-            transformed_loss.append(tf.reduce_mean(tf.square(scale*(predictions - responses))).numpy())
             if count % 500 == 0:
                 print(f"Epoch {epoch}, batch {count}, loss {loss:.4f}")
         train_loss = tf.reduce_mean(train_loss)
-        wandb.log({'train_loss': train_loss.numpy(), 
-                   'train_transformed_loss': np.mean(transformed_loss)}, step=epoch)
         print(f"Epoch {epoch}, train loss {train_loss:.4f}")
 
-        ### VALIDATION ###
-        K.backend.set_learning_phase(0)
+        K.backend.set_learning_phase(0) # Set valid
         valid_loss = []
-        valid_transformed_loss = []
         for batch_count, (features, responses, instances) in enumerate(valid_data):
-            shift, scale = get_response_normalization(instances,valid_benchmark)
-            responses = (responses - shift) / scale
+            response_centers, response_scales = [], []
+            for instance in instances:
+                instance = instance.numpy().decode('utf-8')
+                response_centers.append(np.mean(valid_benchmark[instance]['nb_nodes']))
+                response_scales.append(np.mean(valid_benchmark[instance]['nb_nodes'])/np.sqrt(12) + np.std(valid_benchmark[instance]['nb_nodes']))
+            response_centers = tf.cast(tf.stack(response_centers, axis=0), tf.float32)
+            response_scales = tf.cast(tf.stack(response_scales, axis=0), tf.float32)
+            responses = (responses - response_centers) / response_scales
 
             predictions = model(features)
             loss = tf.reduce_mean(tf.square(predictions - responses))
             valid_loss.append(loss)
-            valid_transformed_loss.append(tf.reduce_mean(tf.square(scale*(predictions - responses))).numpy())
         valid_loss = tf.reduce_mean(valid_loss)
-        wandb.log({'valid_loss': valid_loss.numpy(), 
-                   'valid_transformed_loss': np.mean(valid_transformed_loss)}, step=epoch)
         print(f"Epoch {epoch}, validation loss {valid_loss:.4f}")
 
         if valid_loss < best_valid_loss:
