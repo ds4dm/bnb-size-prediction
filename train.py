@@ -1,3 +1,4 @@
+import wandb
 import os
 import gzip
 import argparse
@@ -138,10 +139,10 @@ if __name__ == "__main__":
         train_data = train_data.prefetch(1)
 
         train_loss = []
-        transformed_loss = []
-        for count, (features, responses, instances) in enumerate(train_data):
+        rel_loss = []
+        for count, (features, unnorm_responses, instances) in enumerate(train_data):
             shift, scale = get_response_normalization(instances,train_benchmark)
-            responses = (responses - shift) / scale
+            responses = (unnorm_responses - shift) / scale
 
             lr = learning_rate(epoch)
             with tf.GradientTape() as tape:
@@ -150,30 +151,30 @@ if __name__ == "__main__":
             grads = tape.gradient(target=loss, sources=model.variables)
             optimizer.apply_gradients(zip(grads, model.variables))
             train_loss.append(loss)
-            transformed_loss.append(tf.reduce_mean(tf.square(scale*(predictions - responses))))
+            rel_loss.append(tf.reduce_mean(scale * tf.abs(predictions - responses) / (unnorm_responses + 1)))
             if count % 500 == 0:
                 print(f"Epoch {epoch}, batch {count}, loss {loss:.4f}")
         train_loss = tf.reduce_mean(train_loss)
-        transformed_loss = tf.reduce_mean(transformed_loss)
+        rel_loss = tf.reduce_mean(rel_loss)
         wandb.log({'train_loss': train_loss.numpy(),
-                   'train_transformed_loss': transformed_loss.numpy()}, step=epoch)
+                   'train_transformed_loss': rel_loss.numpy()}, step=epoch)
         print(f"Epoch {epoch}, train loss {train_loss:.4f}")
 
         K.backend.set_learning_phase(0) # Set valid
         valid_loss = []
-        transformed_loss = []
-        for batch_count, (features, responses, instances) in enumerate(valid_data):
+        rel_loss = []
+        for batch_count, (features, unnorm_responses, instances) in enumerate(valid_data):
             shift, scale = get_response_normalization(instances,valid_benchmark)
-            responses = (responses - shift) / scale
+            responses = (unnorm_responses - shift) / scale
 
             predictions = model(features)
             loss = tf.reduce_mean(tf.square(predictions - responses))
             valid_loss.append(loss)
-            transformed_loss.append(tf.reduce_mean(tf.square(scale*(predictions - responses))))
+            rel_loss.append(tf.reduce_mean(scale * tf.abs(predictions - responses) / (unnorm_responses + 1)))
         valid_loss = tf.reduce_mean(valid_loss)
-        transformed_loss = tf.reduce_mean(transformed_loss)
+        rel_loss = tf.reduce_mean(rel_loss)
         wandb.log({'valid_loss': valid_loss.numpy(),
-                   'valid_transformed_loss': transformed_loss.numpy()}, step=epoch)
+                   'valid_transformed_loss': rel_loss.numpy()}, step=epoch)
         print(f"Epoch {epoch}, validation loss {valid_loss:.4f}")
 
         if valid_loss < best_valid_loss:
