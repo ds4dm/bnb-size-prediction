@@ -4,7 +4,7 @@ import tensorflow.keras as K
 
 
 SEQUENCE_LENGTH = 50
-FEATURE_SIZE = 40
+FEATURE_SIZE = 36
 
 
 class BaseModel(K.Model):

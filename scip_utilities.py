@@ -209,33 +209,39 @@ def extract_state(model, buffer=None):
 
 
 SOLVING_STATS_SEQUENCE_LENGTH = 50
-SOLVING_STATS_FEATURES = [
+OLD_SOLVING_STATS_FEATURES = [
 'opennodes_90quant_norm',
 'opennodes_75quant_normfirst',
 'opennodes_90quant_normfirst',
+'avgdualbound_normfirst',
+#
 'cutoffbound',
-'avgpseudocostscorecurrentrun',
 'primalbound',
 'dualboundroot',
+'gap',
+'transgap',
+#
+'avgpseudocostscorecurrentrun',
+'avgpseudocostscore_normfirst',
+'avgpseudocostscore_norm',
+#
 'ndeactivatednodes',
 'ncreatednodesrun',
+'nbacktracks',
+'nstrongbranchs',
+#
 'ntotalnodes',
 'nleaves',
+'nnodesleft',
+'nnodes_done',
+#
 'nduallps',
-'nstrongbranchs',
 'nlps',
 'nnodelps',
-'gap',
-'avgpseudocostscore_normfirst',
-'nnodes_done',
-'nnodesleft',
-'transgap',
-'nbacktracks',
-'avgdualbound_normfirst',
-'avgpseudocostscore_norm',
+'nnodeinitlpiterations',
 'nnodeinitlpiterations',
 'nnodelpiterations',
-#
+'nnodelpiterations',
 'nlpiterations',
 'nrootlpiterations',
 'nrootfirstlpiterations',
@@ -245,8 +251,6 @@ SOLVING_STATS_FEATURES = [
 'nresolvelpiterations',
 'nprimalresolvelpiterations',
 'ndualresolvelpiterations',
-'nnodelpiterations',
-'nnodeinitlpiterations',
 'ndivinglpiterations',
 'nstrongbranchlpiterations',
 'nrootstrongbranchlpiterations',
@@ -254,34 +258,127 @@ SOLVING_STATS_FEATURES = [
 'solvingtime',
 ]
 
+BOUND_STATS = [
+'cutoffbound',
+'upperbound',
+'lowerbound',
+'lp_obj'
+]
+
+LP_STATS = [
+'nlps',
+'nlpiterations',
+'nnodelps',
+'nnodelpiterations',
+'nduallps',
+'nduallpiterations',
+'nprimallps',
+'nprimallpiterations',
+'nresolvelps',
+'nresolvelpiterations',
+'ndivinglps',
+'ndivinglpiterations',
+]
+
+SOLVING_STATS_FEATURES = [
+'opennodes_90quant_norm',
+'opennodes_75quant_normfirst',
+'opennodes_90quant_normfirst',
+'avgdualbound_normfirst',
+# BOUNDS
+'cutoffbound',
+'upperbound',
+'lowerbound',
+'lp_obj',
+'transgap',
+#
+'avgpseudocostscorecurrentrun',
+'avgpseudocostscore_normfirst',
+'avgpseudocostscore_norm',
+# ACTIVITY STATS
+'deactivation_freq',
+'backtrack_freq',
+'incumbent_update_freq',
+# TREE STRUCTURE
+'processed_ratio',
+'leaves_ratio',
+'feasible_ratio',
+'infeasible_ratio',
+'objlim_ratio',
+# LP STATS
+'nlps',
+'nlpiterations',
+'nnodelps',
+'nnodelpiterations',
+'nduallps',
+'nduallpiterations',
+'nprimallps',
+'nprimallpiterations',
+'nresolvelps',
+'nresolvelpiterations',
+'ndivinglps',
+'ndivinglpiterations',
+#
+'solvingtime',
+# DEPTH
+'focusdepth',
+'effectiverootdepth',
+'plungedepth',
+]
 
 def pack_solving_stats(solving_stats):
-    solving_stats = {name: np.asarray([s[name]
-                           for s in solving_stats[-SOLVING_STATS_SEQUENCE_LENGTH:]]) 
-                           for name in solving_stats[0].keys()}
-    solving_stats = normalize_solving_stats(solving_stats, 
+    solving_stats = normalize_solving_stats(solving_stats,
                               length=SOLVING_STATS_SEQUENCE_LENGTH)
-    solving_stats = np.stack([solving_stats[feature_name] 
+    solving_stats = np.stack([solving_stats[feature_name]
                               for feature_name in SOLVING_STATS_FEATURES], axis=-1)
     return solving_stats
 
 
 def normalize_solving_stats(solving_stats, length=SOLVING_STATS_SEQUENCE_LENGTH):
+    u0 = solving_stats[0]['upperbound']
+    l0 = solving_stats[0]['lowerbound']
+    prev_lp_state = {key: solving_stats[-SOLVING_STATS_SEQUENCE_LENGTH-1][key]
+                    if len(solving_stats) > SOLVING_STATS_SEQUENCE_LENGTH else 0
+                    for key in LP_STATS}
+
+    solving_stats = {name: np.asarray([s[name]
+                           for s in solving_stats[-SOLVING_STATS_SEQUENCE_LENGTH:]])
+                           for name in solving_stats[0].keys()}
     solving_stats = {name: np.pad(vals[-length:], (max(length-len(vals), 0), 0), mode='edge') for name, vals in solving_stats.items()}
-    
-    nnodes_done = solving_stats['ninternalnodes'] + solving_stats['nfeasibleleaves'] + solving_stats['ninfeasibleleaves'] + solving_stats['nobjlimleaves']
-    solving_stats['nnodes_done'] = nnodes_done
-    lp_obj_norm = [(v - lb) / ((ub - lb) if ub > lb else 1) for v, lb, ub in zip(solving_stats['lp_obj'], solving_stats['dualbound'], solving_stats['primalbound'])]
-    solving_stats['lp_obj_norm'] = lp_obj_norm
-    lp_obj_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats['lp_obj']]
-    solving_stats['lp_obj_normfirst'] = lp_obj_normfirst
+
+    # Normalization of bounds
+    solving_stats['lp_obj'] = np.asarray([ min(l,u0) for l in solving_stats['lp_obj'] ]) # treat infeasible nodes like cutoff nodes
+    for key in BOUND_STATS:
+        solving_stats[key] = (solving_stats[key] - l0)/(u0 - l0)
+
+    # Activity stats
+    solving_stats['deactivation_freq'] = solving_stats['ndeactivatednodes'] / solving_stats['nnodes']
+    solving_stats['backtrack_freq'] = solving_stats['nbacktracks'] / solving_stats['nnodes']
+    solving_stats['incumbent_update_freq'] = solving_stats['nsolsfound'] / solving_stats['nnodes']
+
+    # Tree structure
+    solving_stats['processed_ratio'] = solving_stats['nnodes'] / solving_stats['ncreatednodesrun']
+    solving_stats['leaves_ratio'] = solving_stats['nnodesleft'] / solving_stats['ncreatednodesrun']
+    solving_stats['feasible_ratio'] = solving_stats['nfeasibleleaves'] / solving_stats['nnodes']
+    solving_stats['infeasible_ratio'] = solving_stats['ninfeasibleleaves'] / solving_stats['nnodes']
+    solving_stats['objlim_ratio'] = solving_stats['nobjlimleaves'] / solving_stats['nnodes']
+
+    # Depth stats
+    solving_stats['focusdepth'] = (solving_stats['focusdepth']+1) / (solving_stats['maxdepth']+1)
+    solving_stats['effectiverootdepth'] = (solving_stats['effectiverootdepth']+1) / (solving_stats['maxdepth']+1)
+
+    # LP stats
+    for key in LP_STATS:
+        solving_stats[key] = np.insert(solving_stats[key],0,prev_lp_state[key])
+        solving_stats[key] = solving_stats[key][1:] - solving_stats[key][:-1]
+      
     solving_stats['avgdualbound'] /= (np.abs(solving_stats['avglowerbound']) + solving_stats['dualbound'])
     avgdualbound_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats['avgdualbound']]
     solving_stats['avgdualbound_normfirst'] = avgdualbound_normfirst
     avgpseudocostscore_norm = [(v - lb) / ((ub - lb) if ub > lb else 1) for v, lb, ub in zip(solving_stats['avgpseudocostscore'], solving_stats['dualbound'], solving_stats['primalbound'])]
     solving_stats['avgpseudocostscore_norm'] = avgpseudocostscore_norm
     avgpseudocostscore_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats['avgpseudocostscore']]
-    solving_stats['avgpseudocostscore_normfirst'] = avgpseudocostscore_normfirst              
+    solving_stats['avgpseudocostscore_normfirst'] = avgpseudocostscore_normfirst
     for k in (10, 25, 50, 75, 90):
         quint = f'opennodes_{k}quant'
         quint_norm = f'opennodes_{k}quant_norm'
@@ -291,5 +388,3 @@ def normalize_solving_stats(solving_stats, length=SOLVING_STATS_SEQUENCE_LENGTH)
         opennodes_quint_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats[quint]]
         solving_stats[quint_normfirst] = opennodes_quint_normfirst
     return solving_stats
-
-

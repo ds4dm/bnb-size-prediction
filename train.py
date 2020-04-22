@@ -68,8 +68,10 @@ def get_response_normalization(instances,benchmark):
     shift, scale = [], []
     for instance in instances:
         instance = instance.numpy().decode('utf-8')
-        shift.append(np.mean(benchmark[instance]['nb_nodes']))
-        scale.append(np.mean(benchmark[instance]['nb_nodes'])/np.sqrt(12) + np.std(benchmark[instance]['nb_nodes']))
+        shift.append(0.0)
+        scale.append(np.mean(benchmark[instance]['nb_nodes']))
+        #shift.append(np.mean(benchmark[instance]['nb_nodes']))
+        #scale.append(np.mean(benchmark[instance]['nb_nodes'])/np.sqrt(12) + np.std(benchmark[instance]['nb_nodes']))
     shift = tf.cast(tf.stack(shift, axis=0), tf.float32)
     scale = tf.cast(tf.stack(scale, axis=0), tf.float32)
     return shift, scale
