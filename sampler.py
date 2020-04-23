@@ -57,13 +57,13 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
                 else:
                     raise ValueError(f"Unrecognized message {message}")
 
-                self.actor = tfe.defun(self._actor_weights.call, 
+                self.actor = tfe.defun(self._actor_weights.call,
                                        input_signature=self._actor_weights.input_signature)
                 tf.set_random_seed(self.seed)
                 tf.reset_default_graph()
                 model = pyscipopt.Model()
                 model.setIntParam('display/verblevel', 0)
-                
+
                 model.readProblem(instance_path)
                 scip_utilities.init_scip_params(model, seed=self.seed)
 
@@ -90,16 +90,16 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
             info = type(exception), exception, exception.__traceback__
             self._logger.info(''.join(traceback.format_exception(*info, limit=5)))
             raise exception
-        
+
     def branchinitsol(self):
         self.state_buffer = {}
-    
+
     def branchexeclp(self, allowaddcons):
         self._nb_steps += 1
         previous_reward = self._reward()
         if previous_reward is not None:
             self._return += previous_reward
-        
+
         state = scip_utilities.extract_state(self.model, self.state_buffer)
         # convert state to tensors
         c, e, v = state
@@ -124,7 +124,7 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         self.model.branchVar(best_var)
         result = pyscipopt.SCIP_RESULT.BRANCHED
         return {"result": result}
-        
+
     def save_results(self, model, recorder, instance_path, solving_stats_output_dir):
         # Save benchmark
         if instance_path not in self._benchmark:
@@ -135,36 +135,38 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         self._benchmark[instance_path]['solving_time'].append(model.getSolvingTime())
         with (solving_stats_output_dir/"benchmark.pkl").open("wb") as file:
             pickle.dump(self._benchmark, file)
-        
+
         # Save solving stats samples
         if solving_stats_output_dir is not None and recorder.stats and self._sample_count < self.nb_solving_stats_samples:
             nb_subsamples = np.ceil(0.05 * len(recorder.stats)).astype(int)
             subsample_ends = np.random.choice(np.arange(1, len(recorder.stats)+1), nb_subsamples, replace=False).tolist()
             for subsample_end in subsample_ends:
-                subsample_stats = scip_utilities.pack_solving_stats(recorder.stats[:subsample_end])
+                subsample_stats, open_node_stats = scip_utilities.pack_stats(recorder.stats[:subsample_end], recorder.open_node_stats[:subsample_end])
                 return_left = self._return - recorder.return_[subsample_end-1]
                 nb_nodes_left = model.getNNodes() - recorder.nb_nodes[subsample_end-1]
                 nb_lp_iterations_left = model.getNLPIterations() - recorder.nb_lp_iterations[subsample_end-1]
                 solving_time_left = model.getSolvingTime() - recorder.solving_time[subsample_end-1]
-                
+
                 if self._sample_count < self.nb_solving_stats_samples:
                     self._sample_count += 1
                     sample_path = solving_stats_output_dir/f"sample_{self._sample_count-1}.pkl"
                     if self._sample_count % 10 == 1:
                         self._logger.info(f"Saving {sample_path}")
                     with gzip.open(str(sample_path), 'wb') as file:
-                        pickle.dump({'solving_stats': subsample_stats, 
-                                     'return_left': return_left, 
-                                     'nb_nodes_left': nb_nodes_left, 
-                                     'nb_lp_iterations_left': nb_lp_iterations_left, 
-                                     'solving_time_left': solving_time_left, 
+                        pickle.dump({'solving_stats': subsample_stats,
+                                     'open_node_stats': open_node_stats['features'],
+                                     'mask': open_node_stats['mask'],
+                                     'return_left': return_left,
+                                     'nb_nodes_left': nb_nodes_left,
+                                     'nb_lp_iterations_left': nb_lp_iterations_left,
+                                     'solving_time_left': solving_time_left,
                                      'instance_path': instance_path}, file)
-    
+
     def branchexitsol(self):
         self._reward.snapshot_reward()
 
     def load_actor(self):
-        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
         tfconfig = tf.ConfigProto()
         tfconfig.intra_op_parallelism_threads = 1
@@ -172,7 +174,7 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         tfconfig.use_per_session_threads = False
         tf.enable_eager_execution(tfconfig)
         tf.set_random_seed(seed=self.seed)
-        
+
         self._actor_weights = GCNPolicy()
         self._actor_weights.restore_state(self.parameters_path)
 
@@ -187,15 +189,16 @@ class ActorSampler(mp.Process, pyscipopt.Branchrule):
         file_handler.setFormatter(formatter)
         self._logger.addHandler(file_handler)
 
-    
+
 class SolvingStatsRecorder(pyscipopt.Eventhdlr):
     """
     A SCIP event handler that records solving stats
     """
     def __init__(self, sampler):
         self.sampler = sampler
-        
+
         self.stats = []
+        self.open_node_stats = []
         self.return_ = []
         self.nb_nodes = []
         self.nb_lp_iterations = []
@@ -214,6 +217,7 @@ class SolvingStatsRecorder(pyscipopt.Eventhdlr):
     def eventexec(self, event):
         if len(self.stats) < self.model.getNNodes():
             self.stats.append(self.model.getSolvingStats())
+            self.open_node_stats.append(self.model.getOpenNodeStats())
             self.return_.append(float(self.sampler._return))
             self.nb_nodes.append(self.model.getNNodes())
             self.nb_lp_iterations.append(self.model.getNLPIterations())
@@ -231,14 +235,14 @@ class NbNodesRewards:
         self.model = model
         self.previous_nb_nodes = None
         self.reward = None
-    
+
     def __call__(self):
         if self.reward is None:
             self.snapshot_reward()
         reward = self.reward
         self.reward = None
         return reward
-    
+
     def snapshot_reward(self):
         nb_nodes = self.model.getNNodes()
         if self.previous_nb_nodes is not None:

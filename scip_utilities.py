@@ -209,6 +209,7 @@ def extract_state(model, buffer=None):
 
 
 SOLVING_STATS_SEQUENCE_LENGTH = 50
+NODE_BUFFER_SIZE = 30
 OLD_SOLVING_STATS_FEATURES = [
 'opennodes_90quant_norm',
 'opennodes_75quant_normfirst',
@@ -326,12 +327,45 @@ SOLVING_STATS_FEATURES = [
 'plungedepth',
 ]
 
-def pack_solving_stats(solving_stats):
-    solving_stats = normalize_solving_stats(solving_stats,
-                              length=SOLVING_STATS_SEQUENCE_LENGTH)
+OPEN_NODE_FEATURES = [
+'depth',
+'type',
+'lowerbound',
+'estimate',
+'naddedconss',
+'isactive',
+]
+
+
+def pack_stats(solving_stats, open_node_stats):
+    solving_stats, l0, u0, maxdepth = normalize_solving_stats(solving_stats,
+                                        length=SOLVING_STATS_SEQUENCE_LENGTH)
     solving_stats = np.stack([solving_stats[feature_name]
                               for feature_name in SOLVING_STATS_FEATURES], axis=-1)
-    return solving_stats
+    open_node_stats = pack_open_node_stats(open_node_stats,l0,u0,maxdepth)
+    return solving_stats, open_node_stats
+
+def pack_open_node_stats(open_node_stats,l0,u0,maxdepth):
+    FEAT = []
+    MASK = []
+    for j, sample in enumerate(open_node_stats[-SOLVING_STATS_SEQUENCE_LENGTH:]):
+        features = {key: np.asarray([node[key] for node in sample]) for key in OPEN_NODE_FEATURES}
+        features['lowerbound'] = (features['lowerbound'] - l0) / (u0-l0)
+        features['estimate'] = (features['estimate'] - l0) / (u0-l0)
+        features['depth'] = (features['depth'] + 1) / (maxdepth[j] + 1)
+
+        # Reorder nodes according to estimate and pad with zeros
+        idx = np.argsort(features['estimate'])[:NODE_BUFFER_SIZE]
+        features = np.stack([features[key] for key in OPEN_NODE_FEATURES ],axis=-1)
+        features = features[idx]
+        mask = np.ones(len(idx),dtype=int)
+        FEAT.append( np.pad(features, ((0,NODE_BUFFER_SIZE-len(idx)),(0,0)), 'constant', constant_values=(0) ) )
+        MASK.append( np.pad(mask, (0,NODE_BUFFER_SIZE-len(idx)), 'constant', constant_values=(0) ) )
+    FEAT = np.stack(FEAT,axis=0)
+    MASK = np.stack(MASK,axis=0)
+    FEAT = np.pad(FEAT, ((SOLVING_STATS_SEQUENCE_LENGTH - FEAT.shape[0],0),(0,0),(0,0)), 'constant', constant_values=(0) )
+    MASK = np.pad(MASK, ((SOLVING_STATS_SEQUENCE_LENGTH - MASK.shape[0],0),(0,0),(0,0)), 'constant', constant_values=(0) )
+    return {'features': FEAT, 'mask': MASK}
 
 
 def normalize_solving_stats(solving_stats, length=SOLVING_STATS_SEQUENCE_LENGTH):
@@ -344,6 +378,7 @@ def normalize_solving_stats(solving_stats, length=SOLVING_STATS_SEQUENCE_LENGTH)
     solving_stats = {name: np.asarray([s[name]
                            for s in solving_stats[-SOLVING_STATS_SEQUENCE_LENGTH:]])
                            for name in solving_stats[0].keys()}
+    maxdepth = solving_stats['maxdepth']
     solving_stats = {name: np.pad(vals[-length:], (max(length-len(vals), 0), 0), mode='edge') for name, vals in solving_stats.items()}
 
     # Normalization of bounds
@@ -371,7 +406,7 @@ def normalize_solving_stats(solving_stats, length=SOLVING_STATS_SEQUENCE_LENGTH)
     for key in LP_STATS:
         solving_stats[key] = np.insert(solving_stats[key],0,prev_lp_state[key])
         solving_stats[key] = solving_stats[key][1:] - solving_stats[key][:-1]
-      
+
     solving_stats['avgdualbound'] /= (np.abs(solving_stats['avglowerbound']) + solving_stats['dualbound'])
     avgdualbound_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats['avgdualbound']]
     solving_stats['avgdualbound_normfirst'] = avgdualbound_normfirst
@@ -387,4 +422,4 @@ def normalize_solving_stats(solving_stats, length=SOLVING_STATS_SEQUENCE_LENGTH)
         solving_stats[quint_norm] = opennodes_quint_norm
         opennodes_quint_normfirst = [(v - solving_stats['dualbound'][0]) / ((solving_stats['primalbound'][0] - solving_stats['dualbound'][0]) if solving_stats['primalbound'][0] > solving_stats['dualbound'][0] else 1) for v in solving_stats[quint]]
         solving_stats[quint_normfirst] = opennodes_quint_normfirst
-    return solving_stats
+    return solving_stats, l0, u0, maxdepth
