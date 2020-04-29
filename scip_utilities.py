@@ -364,7 +364,7 @@ def pack_open_node_stats(open_node_stats,l0,u0,maxdepth):
     FEAT = np.stack(FEAT,axis=0)
     MASK = np.stack(MASK,axis=0)
     FEAT = np.pad(FEAT, ((SOLVING_STATS_SEQUENCE_LENGTH - FEAT.shape[0],0),(0,0),(0,0)), 'constant', constant_values=(0) )
-    MASK = np.pad(MASK, ((SOLVING_STATS_SEQUENCE_LENGTH - MASK.shape[0],0),(0,0),(0,0)), 'constant', constant_values=(0) )
+    MASK = np.pad(MASK, ((SOLVING_STATS_SEQUENCE_LENGTH - MASK.shape[0],0),(0,0)), 'constant', constant_values=(0) )
     return {'features': FEAT, 'mask': MASK}
 
 

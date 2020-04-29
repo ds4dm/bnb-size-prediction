@@ -70,8 +70,9 @@ class MultiHeadAttentionLayer(K.layers.Layer):
         """ Mask must be a binary tensor of dimensions
             [batch_size, sequence_length, node_buffer_size]"""
         n = mask.shape[-1]
+        rep = [1 for dim in range(len(mask.shape))] + [n]
         mask = tf.expand_dims(mask,axis=-1)
-        mask = tf.repeat(mask,[n],axis=-1)
+        mask = tf.tile(mask,rep)
 
         # Create transposed tensor
         shape = list(mask.shape)
@@ -79,12 +80,19 @@ class MultiHeadAttentionLayer(K.layers.Layer):
         perm[-1] = len(shape)-2
         perm[-2] = len(shape)-1
         mask_t = tf.transpose(mask,perm=perm)
+        mask = tf.multiply(mask,mask_t)
 
-        return tf.multiply(mask,mask_t)
+        # Repeat for all attention heads
+        mask = tf.expand_dims(mask,axis=-3)
+        rep = [1 for dim in range(len(mask.shape))]
+        rep[-3] = self.num_heads
+        mask = tf.tile(mask,rep)
+        return mask
 
     def get_output_mask(self,mask):
+        rep = [1 for dim in range(len(mask.shape))] + [self.depth]
         mask = tf.expand_dims(mask,axis=-1)
-        mask = tf.repeat(mask,[self.depth],axis=-1)
+        mask = tf.tile(mask,rep)
         return mask
 
     def scaled_dot_product_attention(self, Q, K, V, mask=None):
@@ -93,7 +101,7 @@ class MultiHeadAttentionLayer(K.layers.Layer):
         scaled_attention = qk / tf.math.sqrt(dk)
 
         if mask is not None:
-            mask = get_attention_mask(mask)
+            mask = self.get_attention_mask(mask)
             scaled_attention += (mask * -1e9)
 
         weights = tf.nn.softmax(scaled_attention, axis=-1)
@@ -186,7 +194,7 @@ class Model(BaseModel):
         if not self.built:
             self.norm.build(feature_size)
             self.self_attention.build((node_feature_size,node_feature_size))
-            self.conv.build((None, sequence_length, feature_size))
+            self.conv.build((None, sequence_length, feature_size + DEPTH))
             self.dense.build((None, 448))
             self.built = True
 
@@ -199,7 +207,7 @@ class Model(BaseModel):
 
         # Stack and process
         solving_stats = self.norm(solving_stats)
-        solving_stats = tf.stack([solving_stats,open_node_stats],axis=-1)
+        solving_stats = tf.concat([solving_stats,open_node_stats],axis=-1)
         hidden = self.conv(solving_stats)
         output = self.dense(hidden)
         output = tf.squeeze(output, axis=-1)

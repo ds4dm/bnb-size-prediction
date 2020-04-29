@@ -10,32 +10,38 @@ import tensorflow.contrib.eager as tfe
 from pathlib import Path
 from model import Model
 
-config = {'lr_start': 1e-5,
-          'lr_end': 1e-5,
+config = {'lr_start': 5e-4,
+          'lr_end': 5e-5,
           'max_epochs': 50}
 
 
 def load_instance(filename):
     with gzip.open(filename, 'rb') as file:
         sample = pickle.load(file)
-    features = tf.convert_to_tensor(sample['solving_stats'], dtype=tf.float32)
+    features1 = tf.convert_to_tensor(sample['solving_stats'], dtype=tf.float32)
+    features2 = tf.convert_to_tensor(sample['open_node_stats'], dtype=tf.float32)
+    mask = tf.convert_to_tensor(sample['mask'], dtype=tf.float32)
     response = tf.convert_to_tensor(sample['nb_nodes_left'], dtype=tf.float32)
     instance = sample['instance_path']
-    return features, response, instance
+    return features1, features2, mask, response, instance
 
 
 def load_batch(batch_filenames):
-    batch_features, batch_responses, batch_instances = [], [], []
+    batch_features1, batch_features2, batch_masks, batch_responses, batch_instances = [], [], [], [], []
     for count, filename in enumerate(batch_filenames):
-        features, response, instance = load_instance(filename)
-        batch_features.append(features)
+        features1, features2, mask, response, instance = load_instance(filename)
+        batch_features1.append(features1)
+        batch_features2.append(features2)
+        batch_masks.append(mask)
         batch_responses.append(response)
         batch_instances.append(instance)
-    batch_features = tf.stack(batch_features, axis=0)
+    batch_features1 = tf.stack(batch_features1, axis=0)
+    batch_features2 = tf.stack(batch_features2, axis=0)
+    batch_masks = tf.stack(batch_masks, axis=0)
     batch_responses = tf.stack(batch_responses, axis=0)
     batch_instances = tf.stack(batch_instances, axis=0)
 
-    return batch_features, batch_responses, batch_instances
+    return batch_features1, batch_features2, batch_masks, batch_responses, batch_instances
 
 
 def get_feature_stats(data, folder):
@@ -47,7 +53,7 @@ def get_feature_stats(data, folder):
         feature_stds  = feature_stats['feature_stds']
     else:
         feature_means, feature_stds = [], []
-        for features, _, _ in data:
+        for features, _, _, _, _ in data:
             feature_means.append(tf.reduce_mean(features, axis=(0, 1)))
             mean = tf.expand_dims(tf.expand_dims(feature_means[-1], axis=0), axis=0)
             std  = tf.reduce_mean(tf.reduce_mean((features - mean) ** 2, axis=0), axis=0)
@@ -114,14 +120,14 @@ if __name__ == "__main__":
 
     train_filenames = [str(filename) for filename in train_folder.glob('sample*.pkl')]
     train_data = tf.data.Dataset.from_tensor_slices(train_filenames).batch(32)
-    train_data = train_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
+    train_data = train_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.float32, tf.float32, tf.string]))
     train_data = train_data.prefetch(1)
     with (train_folder/"benchmark.pkl").open("rb") as file:
         train_benchmark = pickle.load(file)
 
     valid_filenames = [str(filename) for filename in valid_folder.glob('sample*.pkl')]
     valid_data = tf.data.Dataset.from_tensor_slices(valid_filenames).batch(128)
-    valid_data = valid_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
+    valid_data = valid_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.float32, tf.float32, tf.string]))
     valid_data = valid_data.prefetch(1)
     with (valid_folder/"benchmark.pkl").open("rb") as file:
         valid_benchmark = pickle.load(file)
@@ -137,18 +143,19 @@ if __name__ == "__main__":
 
         epoch_train_filenames = rng.choice(train_filenames, len(train_filenames), replace=False)
         train_data = tf.data.Dataset.from_tensor_slices(epoch_train_filenames).batch(32)
-        train_data = train_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.string]))
+        train_data = train_data.map(lambda x: tf.py_func(load_batch, [x], [tf.float32, tf.float32, tf.float32, tf.float32, tf.string]))
         train_data = train_data.prefetch(1)
 
         train_loss = []
         rel_loss = []
-        for count, (features, unnorm_responses, instances) in enumerate(train_data):
+        for count, (features1, features2, mask, unnorm_responses, instances) in enumerate(train_data):
             shift, scale = get_response_normalization(instances,train_benchmark)
             responses = (unnorm_responses - shift) / scale
 
             lr = learning_rate(epoch)
             with tf.GradientTape() as tape:
-                predictions = model(features)
+                inputs = (features1,features2,mask)
+                predictions = model(inputs)
                 loss = tf.reduce_mean(tf.square(predictions - responses))
             grads = tape.gradient(target=loss, sources=model.variables)
             optimizer.apply_gradients(zip(grads, model.variables))
@@ -165,11 +172,11 @@ if __name__ == "__main__":
         K.backend.set_learning_phase(0) # Set valid
         valid_loss = []
         rel_loss = []
-        for batch_count, (features, unnorm_responses, instances) in enumerate(valid_data):
+        for batch_count, (features1, features2, mask, unnorm_responses, instances) in enumerate(valid_data):
             shift, scale = get_response_normalization(instances,valid_benchmark)
             responses = (unnorm_responses - shift) / scale
-
-            predictions = model(features)
+            inputs = (features1,features2,mask)
+            predictions = model(inputs)
             loss = tf.reduce_mean(tf.square(predictions - responses))
             valid_loss.append(loss)
             rel_loss.append(tf.reduce_mean(scale * tf.abs(predictions - responses) / (unnorm_responses + 1)))
